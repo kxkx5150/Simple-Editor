@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html dir="ltr">
+<head>
+    <meta charset="utf-8">
+    <title>Simple Editor</title>
+    <link href="css/github-css/github.css" rel="stylesheet">
+    <link href="css/editor.css" rel="stylesheet">
+    <link href="js/jsdifflib/diffview.css" rel="stylesheet">
+	<script src="js/git-html5js/api-built.js"></script>
+    <script src="js/jszip/jszip.min.js"></script>
+    <script src="js/jquery/jquery-2.1.3.min.js"></script>
+    <script src="js/jquery/jquery.ui.core.js"></script>
+    <script src="js/jquery/jquery.ui.widget.js"></script>
+    <script src="js/jquery/jquery.ui.mouse.js"></script>
+    <script src="js/jquery/jquery.ui.sortable.js"></script>
+	<script src="js/jsdifflib/diffview.js"></script>
+	<script src="js/jsdifflib/difflib.js"></script>
+	<script src="js/init.js"></script>
+	<script src="js/marked/marked.min.js"></script>
+</head>
+<!--
+/***********************************************************
+		Simple Editor
+			Distributed under the BSD license:
+			http://opensource.org/licenses/BSD-3-Clause
+
+		Simple Editor based on Ace Editor
+			http://ace.c9.io/
+			https://github.com/ajaxorg/ace
+************************************************************
+		Copyright (c) 2015 Kunihiro Ando 
+			senna5150ando@gmail.com
+        	2015-06-12T19:19:05Z
+***********************************************************/ 
+-->
+<body>
+	<div id="custom-frame" style="-webkit-app-region: drag" class="custom-frame-class">
+		<ul class="drop_menu">
+			<li><a href='#'><span class="modal-awesome-close" style="-webkit-app-region:  no-drag"></span></a></li><li><a href='#'><span class="modal-awesome-full" style="-webkit-app-region:  no-drag"></span></a></li><li><a href='#'><span class="modal-awesome-minus" style="-webkit-app-region:  no-drag"></span></a></li><li class="oopen"><a href='#'><span class="modal-awesome-open" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-folder submenu" style="-webkit-app-region:  no-drag"><label>Open Folder</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-file submenu" style="-webkit-app-region:  no-drag"><label>Open File</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-charset submenu" style="-webkit-app-region:  no-drag"><label>Open File with Encoding</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-zip submenu" style="-webkit-app-region:  no-drag"><label>Open Zip</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-new submenu" style="-webkit-app-region:  no-drag"><label>New File</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-newwindow submenu" style="-webkit-app-region:  no-drag"><label>New Window</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-insert submenu" style="-webkit-app-region:  no-drag"><label>Insert File</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-webapp submenu" style="-webkit-app-region:  no-drag"><label>Create Web App</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-chromeapp submenu" style="-webkit-app-region:  no-drag"><label>Create Chrome Apps</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-chromeext submenu" style="-webkit-app-region:  no-drag"><label>Create Chrome Extension</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-githubdl submenu" style="-webkit-app-region:  no-drag"><label>GitHub URL</label></span></a></li>
+				</ul>
+			</li><li class="omenu"><a href='#'><span class="modal-awesome-omenu" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-save submenu" style="-webkit-app-region:  no-drag"><label>Save</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-saveas submenu" style="-webkit-app-region:  no-drag"><label>Save As</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-saveascrlf submenu" style="-webkit-app-region:  no-drag"><label>Save As (CRLF)</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-saveaslf submenu" style="-webkit-app-region:  no-drag"><label>Save As (LF)</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-saveall submenu" style="-webkit-app-region:  no-drag"><label>Save All</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-print submenu" style="-webkit-app-region:  no-drag"><label>Print</label></span></a></li>
+				</ul>
+			</li><li class="hsmenu"><a href='#'><span class="modal-awesome-history" style="-webkit-app-region:  no-drag"></span></a>
+				<ul id="history-container">
+				</ul>
+			</li><li class="projectmenu"><a href='#'><span class="modal-awesome-project" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-show-project-manager submenu" style="-webkit-app-region:  no-drag"><label>Show/Hide Side Bar</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-opengsync submenu" style="-webkit-app-region:  no-drag"><label>Open Google Sync</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-savegsyncf submenu" style="-webkit-app-region:  no-drag"><label>Add File to Google Sync</label></span></a></li>					
+					<li><a href='#'><span class="modal-awesome-savegsync submenu" style="-webkit-app-region:  no-drag"><label>Add Folder to Google Sync</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-writegsync submenu" style="-webkit-app-region:  no-drag"><label>Write Local (Google Sync)</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-createpo submenu" style="-webkit-app-region:  no-drag"><label>Open Project</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-createpn submenu" style="-webkit-app-region:  no-drag"><label>New Project</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-createpe submenu" style="-webkit-app-region:  no-drag"><label>Edit Project</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-createps submenu" style="-webkit-app-region:  no-drag"><label>Save Project</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-server submenu" style="-webkit-app-region:  no-drag"><label>Start Web Server</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-stopserver submenu" style="-webkit-app-region:  no-drag"><label>Stop Web Server</label></span></a></li>				
+				</ul>
+			</li><li class="git"><a href='#'><span class="modal-awesome-git" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-gitusersetting submenu" style="-webkit-app-region:  no-drag"><label>Git User Setting</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitopen submenu" style="-webkit-app-region:  no-drag"><label>Git Open Local</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitclone submenu" style="-webkit-app-region:  no-drag"><label>Git Clone</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitaddfiles submenu" style="-webkit-app-region:  no-drag"><label>Git Add Files</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitaddfolder submenu" style="-webkit-app-region:  no-drag"><label>Git Add Folder</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitcommit submenu" style="-webkit-app-region:  no-drag"><label>Git Commit</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitpush submenu" style="-webkit-app-region:  no-drag"><label>Git Push</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitpull submenu" style="-webkit-app-region:  no-drag"><label>Git Pull</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitbranch submenu" style="-webkit-app-region:  no-drag"><label>Git Branch</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitcheckout submenu" style="-webkit-app-region:  no-drag"><label>Git Checkout</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-gitwrite submenu" style="-webkit-app-region:  no-drag"><label>Create Local Folder</label></span></a></li>	
+				</ul>
+			</li><li class="split"><a href='#'><span class="modal-awesome-split" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-newview submenu" style="-webkit-app-region:  no-drag"><label>New View</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-splitv submenu" style="-webkit-app-region:  no-drag"><label>Vertically Split</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-splith submenu" style="-webkit-app-region:  no-drag"><label>Horizontally Split</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-splitnewv submenu" style="-webkit-app-region:  no-drag"><label>Vertically Split New File</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-splitnewh submenu" style="-webkit-app-region:  no-drag"><label>Horizontally Split New File</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-resetsplit submenu" style="-webkit-app-region:  no-drag"><label>Reset Split</label></span></a></li>
+				</ul>
+			</li><li class="ucmenu"><a href='#'><span class="modal-awesome-ucom" style="-webkit-app-region:  no-drag"></span></a>
+				<ul id="ucom-container">
+				</ul>
+			</li><li class="li-WebView"><a href='#'><span class="modal-awesome-webview-start" style="-webkit-app-region:  no-drag"></span></a>
+				<ul id="webview-button-container">
+					<li><a href='#'><span class="modal-awesome-webviewpre submenu" style="-webkit-app-region:  no-drag"><label>Webview Preview</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-webhtmltag webviewitem submenu" style="-webkit-app-region:  no-drag"><label>HTML reference</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-webcss webviewitem submenu" style="-webkit-app-region:  no-drag"><label>CSS reference</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-webjs webviewitem submenu" style="-webkit-app-region:  no-drag"><label>JavaScript reference</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-webapi webviewitem submenu" style="-webkit-app-region:  no-drag"><label>Web API Interfaces</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-chromeapi webviewitem submenu" style="-webkit-app-region:  no-drag"><label>Chrome Apps API</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-chromeexapi webviewitem submenu" style="-webkit-app-region:  no-drag"><label>Chrome Extension API</label></span></a></li>
+				</ul>
+			</li><li class="customize"><a href='#'><span class="modal-awesome-customize" style="-webkit-app-region:  no-drag"></span></a>
+				<ul>
+					<li><a href='#'><span class="modal-awesome-settings submenu" style="-webkit-app-region:  no-drag"><label>Settings</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-custheme submenu" style="-webkit-app-region:  no-drag"><label>Edit Theme</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-rmtheme submenu" style="-webkit-app-region:  no-drag"><label>Reset Theme</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-custkey submenu" style="-webkit-app-region:  no-drag"><label>Edit Keyboard</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-excustkey submenu" style="-webkit-app-region:  no-drag"><label>Edit Keyboard (etc)</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-snippet submenu" style="-webkit-app-region:  no-drag"><label>Edit Snippets</label></span></a></li>
+					<li style="display:none"><a href='#'><span class="modal-awesome-ehigh submenu" style="-webkit-app-region:  no-drag"><label>Edit Highlight Rules</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-uinit submenu" style="-webkit-app-region:  no-drag"><label>Edit User Init Script</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-addedtior submenu" style="-webkit-app-region:  no-drag"><label>Edit Add Script to Editor</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-ufextensin submenu" style="-webkit-app-region:  no-drag"><label>Edit File Mode</label></span></a></li>
+					<li><a href='#'><span class="modal-awesome-shortcuts submenu" style="-webkit-app-region:  no-drag"><label>Shortcuts</label></span></a></li>	
+					<li><a href='#'><span class="modal-awesome-api submenu" style="-webkit-app-region:  no-drag"><label>Ace API</label></span></a></li>					
+					<li><a href='#'><span class="modal-awesome-about submenu" style="-webkit-app-region:  no-drag"><label>About</label></span></a></li>
+				</ul>
+			</li>
+		</ul>
+	</div>
+	<div class="editor-all-container">
+		<div class="project-all-container" style="display:none">
+    		<div style="position:relative;height:100%;overflow-y: auto;">
+    		    <input type="text" name="search-file-input" id="search-file-input" value="" />
+    		    <span id="search-file-button"></span><span id="search-finish-button"></span>
+    			<div class="project-open-head openfile-head">Open Files</div>
+                <ul id="project-open-container">
+                </ul>
+    		    <div id="project-container">
+    		    </div>
+    		    <div id="project-resize">
+    		    </div>
+    		    <div id="search-file-container">
+    		        <ul id="search-file-item-container">
+    		            
+    		        </ul>
+    		    </div>
+    		</div>
+		</div>
+		<div class="editor-container" id="editor-container">
+		    <div id="topmenucontainer">
+		    	<div id="menucontainerclass"></div>
+			    <div id="tabcontainer">
+					<div id='cssmenu' class="dd">
+						<ul id="tabul" class="dd-list"></ul>
+						<div id="createnew-button"></div>
+					</div>
+			    </div>
+		    </div>
+ 			<div id="maincontainer"></div>
+		</div>
+	</div>
+	<div id="optionsdiv">
+		<div style="position: fixed; right: 15px; top: 36px;">
+			<img src="img/back.png" id="backimg">
+		</div>
+		<div style="float:left;">
+			<table>
+				<tbody>
+				    <tr>
+				      <td>
+				        <label for="mode">Mode</label>
+				      </td><td>
+				        <select id="mode" size="1">
+							<option value="abap">ABAP</option><option value="abc">ABC</option><option value="actionscript">ActionScript</option><option value="ada">ADA</option><option value="apache_conf">Apache Conf</option><option value="asciidoc">AsciiDoc</option><option value="assembly_x86">Assembly x86</option><option value="autohotkey">AutoHotKey</option><option value="batchfile">BatchFile</option><option value="c_cpp">C and C++</option><option value="c9search">C9Search</option><option value="cirru">Cirru</option><option value="clojure">Clojure</option><option value="cobol">Cobol</option><option value="coffee">CoffeeScript</option><option value="coldfusion">ColdFusion</option><option value="csharp">C#</option><option value="css">CSS</option><option value="curly">Curly</option><option value="d">D</option><option value="dart">Dart</option><option value="diff">Diff</option><option value="dockerfile">Dockerfile</option><option value="dot">Dot</option><option value="dummy">Dummy</option><option value="dummysyntax">DummySyntax</option><option value="eiffel">Eiffel</option><option value="ejs">EJS</option><option value="elixir">Elixir</option><option value="elm">Elm</option><option value="erlang">Erlang</option><option value="forth">Forth</option><option value="ftl">FreeMarker</option><option value="gcode">Gcode</option><option value="gherkin">Gherkin</option><option value="gitignore">Gitignore</option><option value="glsl">Glsl</option><option value="golang">Go</option><option value="groovy">Groovy</option><option value="haml">HAML</option><option value="handlebars">Handlebars</option><option value="haskell">Haskell</option><option value="haxe">haXe</option><option value="html">HTML</option><option value="html_ruby">HTML (Ruby)</option><option value="ini">INI</option><option value="io">Io</option><option value="jack">Jack</option><option value="jade">Jade</option><option value="java">Java</option><option value="javascript" selected>JavaScript</option><option value="json">JSON</option><option value="jsoniq">JSONiq</option><option value="jsp">JSP</option><option value="jsx">JSX</option><option value="julia">Julia</option><option value="latex">LaTeX</option><option value="lean">Lean</option><option value="less">LESS</option><option value="liquid">Liquid</option><option value="lisp">Lisp</option><option value="livescript">LiveScript</option><option value="logiql">LogiQL</option><option value="lsl">LSL</option><option value="lua">Lua</option><option value="luapage">LuaPage</option><option value="lucene">Lucene</option><option value="makefile">Makefile</option><option value="markdown">Markdown</option><option value="mask">Mask</option><option value="matlab">MATLAB</option><option value="maze">Maze</option><option value="mel">MEL</option><option value="mushcode">MUSHCode</option><option value="mysql">MySQL</option><option value="nix">Nix</option><option value="objectivec">Objective-C</option><option value="ocaml">OCaml</option><option value="pascal">Pascal</option><option value="perl">Perl</option><option value="pgsql">pgSQL</option><option value="php">PHP</option><option value="powershell">Powershell</option><option value="praat">Praat</option><option value="prolog">Prolog</option><option value="properties">Properties</option><option value="protobuf">Protobuf</option><option value="python">Python</option><option value="r">R</option><option value="rdoc">RDoc</option><option value="rhtml">RHTML</option><option value="ruby">Ruby</option><option value="rust">Rust</option><option value="sass">SASS</option><option value="scad">SCAD</option><option value="scala">Scala</option><option value="scheme">Scheme</option><option value="scss">SCSS</option><option value="sh">SH</option><option value="sjs">SJS</option><option value="smarty">Smarty</option><option value="snippets">snippets</option><option value="soy_template">Soy Template</option><option value="space">Space</option><option value="sql">SQL</option><option value="sqlserver">SQLServer</option><option value="stylus">Stylus</option><option value="svg">SVG</option><option value="swift">Swift</option><option value="tcl">Tcl</option><option value="tex">Tex</option><option value="text">Text</option><option value="textile">Textile</option><option value="toml">Toml</option><option value="twig">Twig</option><option value="typescript">Typescript</option><option value="vala">Vala</option><option value="vbscript">VBScript</option><option value="velocity">Velocity</option><option value="verilog">Verilog</option><option value="vhdl">VHDL</option><option value="xml">XML</option><option value="xquery">XQuery</option><option value="yaml">YAML</option><option value="django">Django</option>
+				        </select>
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="theme">Theme</label>
+				      </td><td>
+				        <select id="theme" size="1">
+				          <optgroup label="Bright">
+				            <option value="ace/theme/chrome">Chrome</option>
+				            <option value="ace/theme/clouds">Clouds</option>
+				            <option value="ace/theme/crimson_editor">Crimson Editor</option>
+				            <option value="ace/theme/dawn">Dawn</option>
+				            <option value="ace/theme/dreamweaver">Dreamweaver</option>
+				            <option value="ace/theme/eclipse">Eclipse</option>
+				            <option value="ace/theme/github">GitHub</option>
+				            <option value="ace/theme/iplastic">IPlastic</option>
+				            <option value="ace/theme/solarized_light">Solarized Light</option>
+				            <option value="ace/theme/textmate">TextMate</option>
+				            <option value="ace/theme/tomorrow">Tomorrow</option>
+				            <option value="ace/theme/xcode">XCode</option>
+				            <option value="ace/theme/kuroir">Kuroir</option>
+				            <option value="ace/theme/katzenmilch">KatzenMilch</option>
+				            <option value="ace/theme/sqlserver">SQL Server</option>
+				          </optgroup>
+				          <optgroup label="Dark">
+				            <option value="ace/theme/ambiance">Ambiance</option>
+				            <option value="ace/theme/chaos">Chaos</option>
+				            <option value="ace/theme/clouds_midnight">Clouds Midnight</option>
+				            <option value="ace/theme/cobalt">Cobalt</option>
+				            <option value="ace/theme/idle_fingers">idleFingers</option>
+				            <option value="ace/theme/kr_theme">krTheme</option>
+				            <option value="ace/theme/merbivore">Merbivore</option>
+				            <option value="ace/theme/merbivore_soft">Merbivore Soft</option>
+				            <option value="ace/theme/mono_industrial">Mono Industrial</option>
+				            <option value="ace/theme/monokai" selected>Monokai</option>
+				            <option value="ace/theme/pastel_on_dark">Pastel on dark</option>
+				            <option value="ace/theme/solarized_dark">Solarized Dark</option>
+				            <option value="ace/theme/terminal">Terminal</option>
+				            <option value="ace/theme/tomorrow_night">Tomorrow Night</option>
+				            <option value="ace/theme/tomorrow_night_blue">Tomorrow Night Blue</option>
+				            <option value="ace/theme/tomorrow_night_bright">Tomorrow Night Bright</option>
+				            <option value="ace/theme/tomorrow_night_eighties">Tomorrow Night 80s</option>
+				            <option value="ace/theme/twilight">Twilight</option>    
+				            <option value="ace/theme/vibrant_ink">Vibrant Ink</option>
+				          </optgroup>
+				        </select>
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="fontsize">Font Size</label>
+				      </td><td>
+				        <select id="fontsize" size="1">
+				          <option value="9px">9px</option>
+				          <option value="10px">10px</option>
+				          <option value="11px">11px</option>
+				          <option value="12px" selected="selected">12px</option>
+				          <option value="13px">13px</option>
+				          <option value="14px">14px</option>
+				          <option value="15px">15px</option>
+				          <option value="16px">16px</option>
+				          <option value="17px">17px</option>
+				          <option value="18px">18px</option>
+				          <option value="19px">19px</option>
+				          <option value="20px">20px</option>
+				          <option value="21px">21px</option>
+				          <option value="22px">22px</option>
+				          <option value="23px">23px</option>
+				          <option value="24px">24px</option>
+				        </select> or 
+				        <input type="number" value="100" min="1" max="1000" id="fontsize-parcent"> %
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="fontfamily">Font Family</label>
+				      </td><td>
+				      	<input type="text"  id="fontfamily" value="'Consolas', 'Inconsolata', 'Monaco', 'Menlo', 'Ubuntu Mono', 'source-code-pro', monospace">
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label>Line Height</label>
+				      </td><td>
+				        <select id="editor-line-height" size="1">
+				          <option value="inherit" selected>inherit</option>
+				          <option value="1">1</option>
+				          <option value="1.1">1.1</option>
+				          <option value="1.2">1.2</option>
+				          <option value="1.3">1.3</option>
+				          <option value="1.4">1.4</option>
+				          <option value="1.5">1.5</option>
+				          <option value="1.6">1.6</option>
+				          <option value="1.7">1.7</option>
+				          <option value="1.8">1.8</option>
+				          <option value="1.9">1.9</option>
+				          <option value="2">2</option>
+				          <option value="2.1">2.1</option>
+				          <option value="2.2">2.2</option>
+				          <option value="2.3">2.3</option>
+				          <option value="2.4">2.4</option>
+				          <option value="2.5">2.5</option>
+				        </select>
+				      </td>
+				    </tr>	    
+				    <tr>
+				      <td>
+				        <label for="tabsize">Tab Size</label>
+				      </td><td>
+				        <select id="tabsize" size="1">
+				          <option value="2">2</option>
+				          <option value="4" selected="selected">4</option>
+				          <option value="8">8</option>
+				        </select>
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="folding">Code Folding</label>
+				      </td><td>
+				        <select id="folding" size="1">
+				          <option value="false">Manual</option>
+				          <option value="true" selected="selected">Mark begin</option>
+				        </select>
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="keybinding">Key Binding</label>
+				      </td><td>
+				        <select id="keybinding" size="1">
+				          <option value="ace">Ace</option>
+				          <option value="vim">Vim</option>
+				          <option value="emacs">Emacs</option>				          
+				        </select>
+				      </td>
+				    </tr>
+				    <tr>
+				      <td>
+				        <label for="soft_wrap">Soft Wrap</label>
+				      </td><td>
+				        <select id="soft_wrap" size="1">
+				          <option value="off">Off</option>
+				          <option value="40">40 Chars</option>
+				          <option value="80">80 Chars</option>
+				          <option value="120">120 Chars</option>
+				          <option value="free">Free</option>
+				        </select>
+				      </td>
+				    </tr>
+				</tbody>
+			</table>
+			<table>
+				<tbody>
+					<tr style="display:none">
+					  <td>
+				        <label for="search_backwards">Search Backwards</label>
+					  </td><td>
+					    <input type="checkbox" name="search_backwards" id="search_backwards" checked>
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="live_auto">Enable LiveAutocompletion</label>
+					  </td><td>
+					    <input type="checkbox" name="live_auto" id="live_auto" checked>
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="js_valid">JavaScript Validation</label>
+					  </td><td>
+					    <input type="checkbox" name="js_valid" id="js_valid" checked>
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="remember_open_files">Remember Open Files</label>
+					  </td><td>
+					    <input type="checkbox" name="remember_open_files" id="remember_open_files">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="auto_save">Auto Save</label>
+					  </td><td>
+					    <input type="checkbox" name="auto_save" id="auto_save">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="no_italic">No Italic</label>
+					  </td><td>
+					    <input type="checkbox" name="no_italic" id="no_italic">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="hide_hscrollbar">Hide Horizontal Scrollbar</label>
+					  </td><td>
+					    <input type="checkbox" name="hide_hscrollbar" id="hide_hscrollbar">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_bar">Show Status Bar (for Incremental Search)</label>
+					  </td><td>
+					    <input type="checkbox" name="show_bar" id="show_bar">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="select_style">Full Line Selection</label>
+					  </td><td>
+					    <input type="checkbox" name="select_style" id="select_style" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="highlight_active">Highlight Active Line</label>
+					  </td><td>
+					    <input type="checkbox" name="highlight_active" id="highlight_active" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="highlight_search_active">Highlight Search Word</label>
+					  </td><td>
+					    <input type="checkbox" name="highlight_search_active" id="highlight_search_active" checked>
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_hidden">Show Invisibles</label>
+					  </td><td>
+					    <input type="checkbox" name="show_hidden" id="show_hidden">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="display_indent_guides">Show Indent Guides</label>
+					  </td><td>
+					    <input type="checkbox" name="display_indent_guides" id="display_indent_guides" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_hscroll">Persistent HScroll</label>
+					  </td><td>
+					    <input type="checkbox" name="show_hscroll" id="show_hscroll">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="animate_scroll">Animate Scrolling</label>
+					  </td><td>
+					    <input type="checkbox" name="animate_scroll" id="animate_scroll">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_gutter">Show Gutter</label>
+					  </td><td>
+					    <input type="checkbox" id="show_gutter" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_print_margin">Show Print Margin</label>
+					  </td><td>
+					    <input type="checkbox" id="show_print_margin" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="soft_tab">Use Soft Tab</label>
+					  </td><td>
+					    <input type="checkbox" id="soft_tab" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="highlight_selected_word">Highlight Selected Word</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="highlight_selected_word" checked="">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="enable_behaviours">Enable Behaviours</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="enable_behaviours">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="fade_fold_widgets">Fade Fold Widgets</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="fade_fold_widgets">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="elastic_tabstops">Enable Elastic Tabstops</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="elastic_tabstops">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="isearch">Incremental Search</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="isearch">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="read_only">Read-only</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="read_only">
+					  </td>
+					</tr>
+					<tr>
+					  <td>
+					    <label for="show_tabs">Show Tabs</label>
+					  </td>
+					  <td>
+					    <input type="checkbox" id="show_tabs" checked>
+					  </td>
+					</tr>
+				    <tr>
+				      <td>
+				        <label for="soft_wrap">Diff Style</label>
+				      </td><td>
+				        <select id="diff_style" size="1">
+				          <option value="0" selected>Side by Side Diff</option>
+				          <option value="1">Inline Diff</option>
+				        </select>
+				      </td>
+				    </tr>
+					<tr>
+					  <td>
+					    <label>Simple Web Server Port</label>
+					  </td>
+					  <td>
+					    <input type="number" id="sever-port-input" value="8999">
+					  </td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+	<div id="aboutModal" class="modalDialog">
+		<div class="aboutcontainer">
+			<span id="about-close" style="-webkit-app-region:  no-drag">X</span>
+			<div id="about-message-container">
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<h2>Simple Editor</h2>
+						<h3>(c) 2015 Kunihiro Ando</h3>
+						<a href="http://opensource.org/licenses/BSD-3-Clause" target="_blank">BSD License</a><br><br>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<div>
+							<h3><a href="https://github.com/ajaxorg/ace" target="_blank">Ace (Ajax.org Cloud9 Editor)</a></h3>
+							<h3><a href="http://ace.c9.io/" target="_blank">Copyright (c) 2010, Ajax.org B.V.</a></h3><br>
+							BSD License<br><br>
+						</div>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<h3><a href="https://chrome.google.com/webstore/detail/web-server-for-chrome/ofhbbkphhbklhfoeikjpcbhemlocgigb" target="_blank">Web Server for Chrome</a></h3>
+						<h3>(c) 2014 Kyle Graehl</h3>
+					</p>
+					<p>
+						MIT license<br>
+						<a href="http://opensource.org/licenses/mit-license.php" target="_blank">http://opensource.org/licenses/mit-license.php</a><br><br>
+						<a href="https://github.com/kzahel/web-server-chrome" target="_blank">https://github.com/kzahel/web-server-chrome</a><br><br><br>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<h3><a href="https://stuk.github.io/jszip/" target="_blank">JSZip</a><span> A library for creating, reading and editing zip</span></h3>
+					</p>
+					<p>
+						<h3>(c) 2009-2014 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso</h3>
+					</p>
+					<p>
+						MIT license or the GPLv3 license<br>
+						<a href="http://opensource.org/licenses/mit-license.php" target="_blank">http://opensource.org/licenses/mit-license.php</a><br><br>
+						<a href="https://github.com/Stuk/jszip" target="_blank">https://github.com/Stuk/jszip</a><br>
+						<br><br>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<h3><a href="https://github.com/cemerick/jsdifflib" target="_blank">jsdifflib</a><span> - A Javascript visual diff tool</span></h3>
+						<h3>Copyright (c) 2007, Snowtide Informatics Systems, Inc.</h3><br>
+						BSD License<br><br>
+						<a href="https://github.com/cemerick/jsdifflib" target="_blank">https://github.com/cemerick/jsdifflib</a><br><br>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-left:32px;font-size:12px">
+					<p>
+						<h3><a href="https://github.com/chjj/marked" target="_blank">marked</a><span> A full-featured markdown parser and compiler</span></h3>
+						<h3>Copyright (c) 2011-2014, Christopher Jeffrey.</h3><br>
+						MIT License<br><br>
+						<a href="https://github.com/chjj/marked" target="_blank">https://github.com/chjj/marked</a><br><br>
+					</p>
+				</div>
+				<div style="margin-top:24px;padding-top:24px; border-top:solid 1px #ccc;"></div>
+				<div style="margin-bottom:44px;margin-left:32px;font-size:12px">
+					<p>
+						<h3><a href="https://github.com/ryanackley/git-html5.js" target="_blank">git-html5.js</a><span>git-html5.js is a pure javascript git client library.</span></h3>
+						<h3>Copyright (c) 2013 Ryan Ackley.</h3><br>
+						MIT License<br><br>
+						<a href="http://tin.cr/tailor.html" target="_blank">http://tin.cr/tailor.html</a><br><br>
+					</p>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div id="imageModal" class="modalDialog">
+		<div id="preview-image-container">
+			<img src="img/icon128.png" id="preview-image">
+		</div>
+	</div>
+	<div id="charseModal" class="modalDialog">
+		<div class="charsetcontainer">
+			<div>
+				<select id="char-set-select">
+					<option value="utf-8" selected>utf-8</option>
+					<option value="ibm866">ibm866</option>
+					<option value="iso-8859-2">iso-8859-2</option>
+					<option value="iso-8859-3">iso-8859-3</option>
+					<option value="iso-8859-4">iso-8859-4</option>
+					<option value="iso-8859-5">iso-8859-5</option>
+					<option value="iso-8859-6">iso-8859-6</option>
+					<option value="iso-8859-7">iso-8859-7</option>
+					<option value="iso-8859-8">iso-8859-8</option>
+					<option value="iso-8859-8-i">iso-8859-8-i</option>
+					<option value="iso-8859-10">iso-8859-10</option>
+					<option value="iso-8859-13">iso-8859-13</option>
+					<option value="iso-8859-14">iso-8859-14</option>
+					<option value="iso-8859-15">iso-8859-15</option>
+					<option value="iso-8859-16">iso-8859-16</option>
+					<option value="koi8-r">koi8-r</option>
+					<option value="koi8-u">koi8-u</option>
+					<option value="macintosh">macintosh</option>
+					<option value="windows-874">windows-874</option>
+					<option value="windows-1250">windows-1250</option>
+					<option value="windows-1251">windows-1251</option>
+					<option value="windows-1252">windows-1252</option>
+					<option value="windows-1253">windows-1253</option>
+					<option value="windows-1254">windows-1254</option>
+					<option value="windows-1255">windows-1255</option>
+					<option value="windows-1256">windows-1256</option>
+					<option value="windows-1257">windows-1257</option>
+					<option value="windows-1258">windows-1258</option>
+					<option value="x-mac-cyrillic">x-mac-cyrillic</option>
+					<option value="gbk">gbk</option>
+					<option value="gb18030">gb18030</option>
+					<option value="big5">big5</option>
+					<option value="euc-jp">euc-jp</option>
+					<option value="iso-2022-jp">iso-2022-jp</option>
+					<option value="shift_jis">shift_jis</option>
+					<option value="euc-kr">euc-kr</option>
+					<option value="replacement">replacement</option>
+					<option value="utf-16be">utf-16be</option>
+					<option value="utf-16le">utf-16le</option>
+					<option value="x-user-defined">x-user-defined</option>
+				</select>
+			</div>
+			<div>
+				<button id="open-charset-input">Open</button>
+			</div>
+		</div>
+	</div>
+	<div id="alartModal" class="modalDialog">
+		<div class="alartcontainer">
+			<div>
+				<h3>Save Changes?</h3>
+			</div>
+			<div>
+				<button id="confirm-button-ok">Save</button><button id="confirm-button-cancel">Cancel</button><button id="confirm-button-dont">Don't Save</button>
+			</div>
+		</div>
+	</div>
+	<div id="exitModal" class="modalDialog">
+		<div class="alartcontainer">
+			<div>
+				<h3>Exit?</h3>
+			</div>
+			<div>
+				<button id="confirmexit-button-cancel">Cancel</button><button id="confirmexit-button-exit">Exit</button>
+			</div>
+		</div>
+	</div>
+	<div id="diffModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closediffModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="diff-button-container">
+			<span id="diff-down"></span><span id="diff-up"></span>
+			<button id="diff-open-button1" style="-webkit-app-region:  no-drag">Open Base Text</button><button id="diff-open-button2" style="-webkit-app-region:  no-drag">Open New Text</button><button id="diff-open-start">Start</button>
+		</div>
+		<div class="diff-text-container" id="diff-text-container">
+			<textarea id="left-textarea"></textarea><textarea id="right-textarea"></textarea>
+		</div>
+		<div class="diff-main-container" id="diff-main-container">
+		</div>
+	</div>
+	<div id="addProjectModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closeAddProjectModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="add-project-container">
+			<div>
+				<h2 style="color:deeppink">Project</h2>
+				<button id="project-add-button">Save</button>
+			</div>	
+			<div class="project-namecontainer">
+				<label>Name </label><input type="text" id="project-name-input">
+			</div>
+			<div id="project-folder-button-container">
+				<button id="project-add-folder-button">Add Folder</button>
+				<h3 style="color:deeppink">Folders</h3>
+			</div>
+			<div id="project-folder-list">
+				
+			</div>
+			<div class="project-extypecontainer">
+				<label>file_exclude_patterns</label><input type="text" id="project-ex-type" placeholder='"*.png","*.gif"'>
+			</div>
+			<div class="project-exnamecontainer">
+				<label>folder_exclude_patterns</label><input type="text" id="project-ex-name" placeholder='"img","tmp"'>
+			</div>
+		</div>
+	</div>
+	<div id="openProjectModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closeOpenProjectModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="open-project-container">
+			<div>
+				<h2 style="color:deeppink">Project</h2>
+			</div>	
+			<div id="open-project-folder-list">
+				
+			</div>
+		</div>
+	</div>
+	<div id="findModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closeFindModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="find-button-container">
+			<label id="find-count-info"></label>
+			<input type="text" id="find-input" style="-webkit-app-region:  no-drag"><button id="find-search-start" style="-webkit-app-region:  no-drag">Start</button>
+			<div style="-webkit-app-region:  no-drag;display:inline-block">
+				<label><input type="checkbox" id="find-regexp-checkbox">RegExp</label> <label><input type="checkbox" id="find-caseSensitive-checkbox">Case Sensitive</label> <label><input type="checkbox" id="find-wholeWord-checkbox">WholeWord</label><button id="new-window-button">New Window</button>
+			</div>
+			<div style="margin-top: 16px;" id="find-replaceall-container">
+				<input type="text" id="find-input-replaceall" style="-webkit-app-region:  no-drag"><button id="find-search-replaceall" style="-webkit-app-region:  no-drag">Replace All</button>
+			</div>
+		</div>
+		<div class="find-container">
+			<div id="open-find-list">
+				
+			</div>
+		</div>
+	</div>
+	<div id="markdownModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closeMarkdownModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="markdown-button-container">
+			<button style="-webkit-app-region:  no-drag;display:inline-block" id="clear-markdown-button">Clear Text</button>
+			<button style="-webkit-app-region:  no-drag;display:inline-block" id="save-markdown-button">Save Markdown Text</button>
+			<button style="-webkit-app-region:  no-drag;display:inline-block" id="copy-markdown-button">Copy Markdown Text</button>
+			<button style="-webkit-app-region:  no-drag;display:inline-block" id="save-mdHTML-button">Save HTML</button>
+			<button style="-webkit-app-region:  no-drag;display:inline-block" id="copy-mdHTML-button">Copy HTML</button>
+			<label for="markdown-preview-checkbox">Preview</label><input type="checkbox" name="markdown-preview-checkbox" id="markdown-preview-checkbox" checked/>
+		</div>
+		<div class="markdown-container">
+			<div id="markdown-editor">
+			</div>
+			<div id="markdown-previewer">
+			</div>
+		</div>
+		<textarea id="dammyinput" style="position:absolute;top:-100px;left:-100px;width:1px;height:1px"></textarea>
+	</div>
+	<div id="loadingModal" class="modalDialog">
+		<span class="circles"></span>
+	</div>	
+    <div id="context-menu">
+        <ul>
+            <li id="context-menu-create-file">Create File</li>
+            <li id="context-menu-create-folder">Create Folder</li>
+        </ul>
+    </div>
+	<div id="newItemProjectModal" class="modalDialog">
+		<div class="githubcontainer">
+			<div>
+				<input type="text" id="crate-new-project--input"><button id="crate-new-project-button">OK</button>
+			</div>
+		</div>
+	</div>
+	<div id="gotoModal" class="modalDialog">
+		<div class="gotoModal-container">
+			<div class="gotoModal-input-container">
+				<a href="#close" title="Close" class="modalclose" id="closegotoModal" style="-webkit-app-region:  no-drag">X</a>
+				<input type="text" id="goto-input" placeholder=":numer=goto line, #keyword=search, /command=command">
+			</div>
+			<div id="gotoModal-item-container">
+				
+			</div>
+		</div>
+	    <div id="editor" style="z-index:1" class="editor"></div>
+	</div>
+	<div id="gitUserModal" class="modalDialog">
+		<div class="gituser-container">
+			<div>
+				<input type="text" id="git-username-input"placeholder="User Name"><br>
+				<input type="password" id="git-userpassword-input"placeholder="Password"><br>
+				<input type="text" id="git-useremail-input"placeholder="E-Mail"><br>
+				<button id="git-user-okbutton">OK</button>
+			</div>
+		</div>
+	</div>
+	<div id="opengitModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closegitModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="open-project-container">
+			<div>
+				<h2 style="color:deeppink">Local</h2>
+			</div>	
+			<div id="git-local-list">
+				
+			</div>
+		</div>
+	</div>
+	<div id="githubURLModal" class="modalDialog">
+		<div class="githubcontainer">
+			<div>
+				<div style="color:#333;display:none" class="git-reopen-label">Please Reopen local repository</div>
+				<input type="text" id="open-github-input"><button id="open-github-button">OK</button>
+			</div>
+		</div>
+	</div>
+	<div id="githubCheckoutModal" class="modalDialog">
+		<div class="git-checkout-container">
+			<div style="color:#333">Please Reopen local repository</div>
+			<div id="gitcheckoutcurrent-disp"></div>
+			<div>
+				<div id="current-branch"></div>
+			</div>
+			<div>
+				<select id="select-branch"></select>
+			</div>			
+		</div>
+	</div>
+	<div id="githubCommitModal" class="modalDialog">
+		<a href="#close" title="Close" class="modalclose" id="closegitCommitModal" style="-webkit-app-region:  no-drag">X</a>
+		<div class="git-checkout-container">
+			<div id="gitcommitcurrent-disp"></div>
+			<input type="text" id="git-commit-username-input"placeholder="User Name"><br>
+			<input type="text" id="git-commit-useremail-input"placeholder="E-Mail"><br>
+			<input type="text" id="git-commit-message-input"placeholder="Commit Message"><br>
+			<button id="git-commit-user-okbutton">OK</button>		
+		</div>
+	</div>
+	<div id="githubIonfModal" class="modalDialog">
+		<div id="github-info-disp">
+		</div>
+	</div>
+	<div class="main-webview-container" id="main-webview-container">
+		<div style="position:relative;width:100%;height:100%;">
+		    <div id="webview-resize"></div>			    
+		    <div class="webview-ctrl-container">
+				<span class="modal-awesome-webclose" style="-webkit-app-region:  no-drag"></span>			
+				<span class="modal-awesome-webback" style="-webkit-app-region:  no-drag"></span>
+				<span class="modal-awesome-webpre" style="-webkit-app-region:  no-drag"></span>
+				<span class="modal-awesome-reload" style="-webkit-app-region:  no-drag"></span>	
+				<span class="modal-awesome-webclear" title="Clear Cache" style="-webkit-app-region:  no-drag"></span>
+		    </div>
+			<webview id="webview" class="webview" src="about:blank" partition="html5-webview"></webview>
+		</div>
+	</div>
+	<script src="js/ace-lib/require.js" data-main="js/index"></script>
+</body>
+</html>
