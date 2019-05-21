@@ -268,13 +268,83 @@ module.exports = {
         doc.setUndoManager(new UndoManager());
         editor = new Editor(new MockRenderer(), doc);
         var selection = editor.selection;
-        selection.addRange(new Range(1,0,1,0))
-        selection.addRange(new Range(2,2,2,2))
+        selection.addRange(new Range(1,0,1,0));
+        selection.addRange(new Range(2,2,2,2));
         editor.execCommand("alignCursors");
         assert.equal('  l1\n  l2\nl3', editor.getValue());
         doc.markUndoGroup();
         editor.execCommand("undo");
         assert.equal('l1\nl2\nl3', editor.getValue());
+    },
+    
+    "test multiselect transpose": function() {
+        editor = new Editor(new MockRenderer());
+        editor.setValue("ay caramba");
+        var selection = editor.selection;
+        selection.fromJSON([new Range(0,3,0,10), new Range(0,0,0,2)]);
+        editor.execCommand("transposeletters");
+        assert.equal('caramba ay', editor.getValue());
+        editor.execCommand("transposeletters");
+        assert.ok(!editor.getSelectionRange().isEmpty());
+        assert.equal('ay caramba', editor.getValue());
+    },
+    
+    "test select next": function() {
+        editor = new Editor(new MockRenderer());
+        editor.setValue("a\na\na", 1);
+        editor.execCommand("selectMoreBefore");
+        editor.execCommand("selectMoreBefore");
+        testSelection(editor, [[0,1,0,0],[1,1,1,0],[2,1,2,0]]);
+        assert.equal(editor.session.$highlightLineMarker.start.row, 0);
+    },
+    
+    "test multiSelect delete": function() {
+        editor.setValue("\n" + "a\nb\nc/\n".repeat(4), -1);
+        exec("selectdown", 4);
+        exec("selectleft", 2);
+        exec("selectMoreAfter", 3);
+        exec("del", 1);
+        assert.equal(editor.getValue(), "////\n");
+        testSelection(editor, [[0,3],[0,2],[0,1],[0,0]]);
+        exec("selectright", 1);
+        exec("insertstring", 1, "a");
+        assert.equal(editor.getValue(), "aaaa\n");
+        testSelection(editor, [[0,4],[0,3],[0,2],[0,1]]);
+        
+        editor.setValue("w1.w2\n\n    0\n1\n2\n3\n4\n5\n6\n    qwe\n\n\n\n\n\n");
+        editor.selection.fromJSON([
+            new Range(2,4,9,7),
+            new Range(0,3,0,4),
+            new Range(0,0,0,1)
+        ]);
+
+        editor.session.remove(new Range(4,0,5,0));
+        testSelection(editor, [[2,4,8,7],[0,3,0,4],[0,0,0,1]]);
+    },
+    
+    "test splitIntoLines": function() {
+        var session = new EditSession(["l1", "l2", "l3"]);
+        var selection = session.selection;
+        editor = new Editor(new MockRenderer(), session);
+        
+        var nCursor = 0;
+        var nSelection = 0;
+        selection.on("changeCursor", function() { nCursor++; });
+        selection.on("changeSelection", function() { nSelection++; });
+        
+        selection.moveTo(0, 0);
+        selection.selectDown();
+        selection.splitIntoLines();
+        assert.equal(nCursor, 2);
+        assert.equal(nSelection, 2);
+        nCursor = nSelection = 0;
+        selection.selectAll();
+        assert.equal(nCursor, 0);
+        assert.equal(nSelection, 1);
+        
+        selection.splitIntoLines();
+        editor.setValue("");
+        assert.equal(editor.selection.inMultiSelectMode, false);
     }
 };
 

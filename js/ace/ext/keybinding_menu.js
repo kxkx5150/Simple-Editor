@@ -67,9 +67,9 @@ define(function(require, exports, module) {
 
             el.id = 'kbshortcutmenu';
             el.innerHTML = '<h1>Keyboard Shortcuts</h1>' + commands + '</div>';
-            overlayPage(editor, el, '0', '0', '0', null);
+            overlayPage(editor, el);
         }
-    };
+    }
     module.exports.init = function(editor) {
         Editor.prototype.showKeyboardShortcuts = function() {
             showKeyboardShortcuts(this);

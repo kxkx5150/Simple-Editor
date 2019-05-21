@@ -34,6 +34,9 @@ define(function(require, exports, module) {
 var keys = require("./keys");
 var useragent = require("./useragent");
 
+var pressedKeys = null;
+var ts = 0;
+
 exports.addListener = function(elem, type, callback) {
     if (elem.addEventListener) {
         return elem.addEventListener(type, callback, false);
@@ -116,26 +119,27 @@ exports.capture = function(el, eventHandler, releaseCaptureHandler) {
 };
 
 exports.addTouchMoveListener = function (el, callback) {
-    if ("ontouchmove" in el) {
-        var startx, starty;
-        exports.addListener(el, "touchstart", function (e) {
-            var touchObj = e.changedTouches[0];
-            startx = touchObj.clientX;
-            starty = touchObj.clientY;
-        });
-        exports.addListener(el, "touchmove", function (e) {
-            var factor = 1,
-            touchObj = e.changedTouches[0];
+    var startx, starty;
+    exports.addListener(el, "touchstart", function (e) {
+        var touches = e.touches;
+        var touchObj = touches[0];
+        startx = touchObj.clientX;
+        starty = touchObj.clientY;
+    });
+    exports.addListener(el, "touchmove", function (e) {
+        var touches = e.touches;
+        if (touches.length > 1) return;
+        
+        var touchObj = touches[0];
 
-            e.wheelX = -(touchObj.clientX - startx) / factor;
-            e.wheelY = -(touchObj.clientY - starty) / factor;
+        e.wheelX = startx - touchObj.clientX;
+        e.wheelY = starty - touchObj.clientY;
 
-            startx = touchObj.clientX;
-            starty = touchObj.clientY;
+        startx = touchObj.clientX;
+        starty = touchObj.clientY;
 
-            callback(e);
-        });
-    } 
+        callback(e);
+    });
 };
 
 exports.addMouseWheelListener = function(el, callback) {
@@ -182,7 +186,7 @@ exports.addMouseWheelListener = function(el, callback) {
     }
 };
 
-exports.addMultiMouseDownListener = function(el, timeouts, eventHandler, callbackName) {
+exports.addMultiMouseDownListener = function(elements, timeouts, eventHandler, callbackName) {
     var clicks = 0;
     var startX, startY, timer; 
     var eventNames = {
@@ -191,7 +195,7 @@ exports.addMultiMouseDownListener = function(el, timeouts, eventHandler, callbac
         4: "quadclick"
     };
 
-    exports.addListener(el, "mousedown", function(e) {
+    function onMousedown(e) {
         if (exports.getButton(e) !== 0) {
             clicks = 0;
         } else if (e.detail > 1) {
@@ -207,7 +211,7 @@ exports.addMultiMouseDownListener = function(el, timeouts, eventHandler, callbac
                 clicks = 1;
             if (timer)
                 clearTimeout(timer);
-            timer = setTimeout(function() {timer = null}, timeouts[clicks - 1] || 600);
+            timer = setTimeout(function() {timer = null;}, timeouts[clicks - 1] || 600);
 
             if (clicks == 1) {
                 startX = e.clientX;
@@ -223,18 +227,22 @@ exports.addMultiMouseDownListener = function(el, timeouts, eventHandler, callbac
             clicks = 0;
         else if (clicks > 1)
             return eventHandler[callbackName](eventNames[clicks], e);
-    });
-
-    if (useragent.isOldIE) {
-        exports.addListener(el, "dblclick", function(e) {
-            clicks = 2;
-            if (timer)
-                clearTimeout(timer);
-            timer = setTimeout(function() {timer = null}, timeouts[clicks - 1] || 600);
-            eventHandler[callbackName]("mousedown", e);
-            eventHandler[callbackName](eventNames[clicks], e);
-        });
     }
+    function onDblclick(e) {
+        clicks = 2;
+        if (timer)
+            clearTimeout(timer);
+        timer = setTimeout(function() {timer = null;}, timeouts[clicks - 1] || 600);
+        eventHandler[callbackName]("mousedown", e);
+        eventHandler[callbackName](eventNames[clicks], e);
+    }
+    if (!Array.isArray(elements))
+        elements = [elements];
+    elements.forEach(function(el) {
+        exports.addListener(el, "mousedown", onMousedown);
+        if (useragent.isOldIE)
+            exports.addListener(el, "dblclick", onDblclick);
+    });
 };
 
 var getModifierHash = useragent.isMac && useragent.isOpera && !("KeyboardEvent" in window)
@@ -253,7 +261,7 @@ function normalizeCommandKeys(callback, e, keyCode) {
     var hashId = getModifierHash(e);
 
     if (!useragent.isMac && pressedKeys) {
-        if (pressedKeys[91] || pressedKeys[92])
+        if (e.getModifierState && (e.getModifierState("OS") || e.getModifierState("Win")))
             hashId |= 8;
         if (pressedKeys.altGr) {
             if ((3 & hashId) != 3)
@@ -278,7 +286,9 @@ function normalizeCommandKeys(callback, e, keyCode) {
         keyCode = -1;
     }
 
-    if (hashId & 8 && (keyCode === 91 || keyCode === 93)) {
+    // keyCode of right command is 93 on mac and 92 on windows.
+    // keyCode of left command key is 91
+    if (hashId & 8 && (keyCode >= 91 && keyCode <= 93)) {
         keyCode = -1;
     }
     
@@ -309,8 +319,7 @@ function normalizeCommandKeys(callback, e, keyCode) {
     return callback(e, hashId, keyCode);
 }
 
-var pressedKeys = null;
-var ts = 0;
+
 exports.addCommandKeyListener = function(el, callback) {
     var addListener = exports.addListener;
     if (useragent.isOldGecko || (useragent.isOpera && !("KeyboardEvent" in window))) {
@@ -354,7 +363,7 @@ exports.addCommandKeyListener = function(el, callback) {
         }
     }
 };
-function resetPressedKeys(e) {
+function resetPressedKeys() {
     pressedKeys = Object.create(null);
 }
 
@@ -362,18 +371,42 @@ if (typeof window == "object" && window.postMessage && !useragent.isOldIE) {
     var postMessageId = 1;
     exports.nextTick = function(callback, win) {
         win = win || window;
-        var messageName = "zero-timeout-message-" + postMessageId;
-        exports.addListener(win, "message", function listener(e) {
+        var messageName = "zero-timeout-message-" + (postMessageId++);
+        
+        var listener = function(e) {
             if (e.data == messageName) {
                 exports.stopPropagation(e);
                 exports.removeListener(win, "message", listener);
                 callback();
             }
-        });
+        };
+        
+        exports.addListener(win, "message", listener);
         win.postMessage(messageName, "*");
     };
 }
 
+exports.$idleBlocked = false;
+exports.onIdle = function(cb, timeout) {
+    return setTimeout(function handler() {
+        if (!exports.$idleBlocked) {
+            cb();
+        } else {
+            setTimeout(handler, 100);
+        }
+    }, timeout);
+};
+
+exports.$idleBlockId = null;
+exports.blockIdle = function(delay) {
+    if (exports.$idleBlockId)
+        clearTimeout(exports.$idleBlockId);
+        
+    exports.$idleBlocked = true;
+    exports.$idleBlockId = setTimeout(function() {
+        exports.$idleBlocked = false;
+    }, delay || 100);
+};
 
 exports.nextFrame = typeof window == "object" && (window.requestAnimationFrame
     || window.mozRequestAnimationFrame

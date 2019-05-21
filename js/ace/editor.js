@@ -50,6 +50,8 @@ var defaultCommands = require("./commands/default_commands").commands;
 var config = require("./config");
 var TokenIterator = require("./token_iterator").TokenIterator;
 
+var clipboard = require("./clipboard");
+
 /**
  * The main entry point into the Ace functionality.
  *
@@ -68,21 +70,23 @@ var TokenIterator = require("./token_iterator").TokenIterator;
  *
  * @constructor
  **/
-var Editor = function(renderer, session) {
+var Editor = function(renderer, session, options) {
     var container = renderer.getContainerElement();
     this.container = container;
     this.renderer = renderer;
+    this.id = "editor" + (++Editor.$uid);
 
     this.commands = new CommandManager(useragent.isMac ? "mac" : "win", defaultCommands);
-    this.textInput  = new TextInput(renderer.getTextAreaContainer(), this);
-    this.renderer.textarea = this.textInput.getElement();
+    if (typeof document == "object") {
+        this.textInput = new TextInput(renderer.getTextAreaContainer(), this);
+        this.renderer.textarea = this.textInput.getElement();
+        // TODO detect touch event support
+        this.$mouseHandler = new MouseHandler(this);
+        new FoldHandler(this);
+    }
+
     this.keyBinding = new KeyBinding(this);
 
-    // TODO detect touch event support
-    this.$mouseHandler = new MouseHandler(this);
-    new FoldHandler(this);
-
-    this.$blockScrolling = 0;
     this.$search = new Search().set({
         wrap: true
     });
@@ -102,66 +106,74 @@ var Editor = function(renderer, session) {
         _self._$emitInputEvent.schedule(31);
     });
 
-    this.setSession(session || new EditSession(""));
+    this.setSession(session || options && options.session || new EditSession(""));
     config.resetOptions(this);
+    if (options)
+        this.setOptions(options);
     config._signal("editor", this);
 };
+
+Editor.$uid = 0;
 
 (function(){
 
     oop.implement(this, EventEmitter);
 
     this.$initOperationListeners = function() {
-        function last(a) {return a[a.length - 1]}
-
-        this.selections = [];
         this.commands.on("exec", this.startOperation.bind(this), true);
         this.commands.on("afterExec", this.endOperation.bind(this), true);
 
-        this.$opResetTimer = lang.delayedCall(this.endOperation.bind(this));
-
+        this.$opResetTimer = lang.delayedCall(this.endOperation.bind(this, true));
+        
+        // todo: add before change events?
         this.on("change", function() {
-            this.curOp || this.startOperation();
+            if (!this.curOp) {
+                this.startOperation();
+                this.curOp.selectionBefore = this.$lastSel;
+            }
             this.curOp.docChanged = true;
         }.bind(this), true);
-
+        
         this.on("changeSelection", function() {
-            this.curOp || this.startOperation();
+            if (!this.curOp) {
+                this.startOperation();
+                this.curOp.selectionBefore = this.$lastSel;
+            }
             this.curOp.selectionChanged = true;
         }.bind(this), true);
     };
 
     this.curOp = null;
     this.prevOp = {};
-    this.startOperation = function(commadEvent) {
+    this.startOperation = function(commandEvent) {
         if (this.curOp) {
-            if (!commadEvent || this.curOp.command)
+            if (!commandEvent || this.curOp.command)
                 return;
             this.prevOp = this.curOp;
         }
-        if (!commadEvent) {
+        if (!commandEvent) {
             this.previousCommand = null;
-            commadEvent = {};
+            commandEvent = {};
         }
 
         this.$opResetTimer.schedule();
-        this.curOp = {
-            command: commadEvent.command || {},
-            args: commadEvent.args,
+        this.curOp = this.session.curOp = {
+            command: commandEvent.command || {},
+            args: commandEvent.args,
             scrollTop: this.renderer.scrollTop
         };
-        if (this.curOp.command.name && this.curOp.command.scrollIntoView !== undefined)
-            this.$blockScrolling++;
+        this.curOp.selectionBefore = this.selection.toJSON();
     };
 
     this.endOperation = function(e) {
         if (this.curOp) {
             if (e && e.returnValue === false)
-                return this.curOp = null;
+                return (this.curOp = null);
+            if (e == true && this.curOp.command && this.curOp.command.name == "mouse")
+                return;
             this._signal("beforeEndOperation");
+            if (!this.curOp) return;
             var command = this.curOp.command;
-            if (command.name && this.$blockScrolling > 0)
-                this.$blockScrolling--;
             var scrollIntoView = command && command.scrollIntoView;
             if (scrollIntoView) {
                 switch (scrollIntoView) {
@@ -188,7 +200,12 @@ var Editor = function(renderer, session) {
                 if (scrollIntoView == "animate")
                     this.renderer.animateScrolling(this.curOp.scrollTop);
             }
+            var sel = this.selection.toJSON();
+            this.curOp.selectionAfter = sel;
+            this.$lastSel = this.selection.toJSON();
             
+            // console.log(this.$lastSel+"  endOP")
+            this.session.getUndoManager().addSelection(sel);
             this.prevOp = this.curOp;
             this.curOp = null;
         }
@@ -238,7 +255,7 @@ var Editor = function(renderer, session) {
      *
      **/
     this.setKeyboardHandler = function(keyboardHandler, cb) {
-        if (keyboardHandler && typeof keyboardHandler === "string") {
+        if (keyboardHandler && typeof keyboardHandler === "string" && keyboardHandler != "ace") {
             this.$keybindingId = keyboardHandler;
             var _self = this;
             config.loadModule(["keybinding", keyboardHandler], function(module) {
@@ -285,82 +302,80 @@ var Editor = function(renderer, session) {
 
         var oldSession = this.session;
         if (oldSession) {
-            this.session.removeEventListener("change", this.$onDocumentChange);
-            this.session.removeEventListener("changeMode", this.$onChangeMode);
-            this.session.removeEventListener("tokenizerUpdate", this.$onTokenizerUpdate);
-            this.session.removeEventListener("changeTabSize", this.$onChangeTabSize);
-            this.session.removeEventListener("changeWrapLimit", this.$onChangeWrapLimit);
-            this.session.removeEventListener("changeWrapMode", this.$onChangeWrapMode);
-            this.session.removeEventListener("onChangeFold", this.$onChangeFold);
-            this.session.removeEventListener("changeFrontMarker", this.$onChangeFrontMarker);
-            this.session.removeEventListener("changeBackMarker", this.$onChangeBackMarker);
-            this.session.removeEventListener("changeBreakpoint", this.$onChangeBreakpoint);
-            this.session.removeEventListener("changeAnnotation", this.$onChangeAnnotation);
-            this.session.removeEventListener("changeOverwrite", this.$onCursorChange);
-            this.session.removeEventListener("changeScrollTop", this.$onScrollTopChange);
-            this.session.removeEventListener("changeScrollLeft", this.$onScrollLeftChange);
+            this.session.off("change", this.$onDocumentChange);
+            this.session.off("changeMode", this.$onChangeMode);
+            this.session.off("tokenizerUpdate", this.$onTokenizerUpdate);
+            this.session.off("changeTabSize", this.$onChangeTabSize);
+            this.session.off("changeWrapLimit", this.$onChangeWrapLimit);
+            this.session.off("changeWrapMode", this.$onChangeWrapMode);
+            this.session.off("changeFold", this.$onChangeFold);
+            this.session.off("changeFrontMarker", this.$onChangeFrontMarker);
+            this.session.off("changeBackMarker", this.$onChangeBackMarker);
+            this.session.off("changeBreakpoint", this.$onChangeBreakpoint);
+            this.session.off("changeAnnotation", this.$onChangeAnnotation);
+            this.session.off("changeOverwrite", this.$onCursorChange);
+            this.session.off("changeScrollTop", this.$onScrollTopChange);
+            this.session.off("changeScrollLeft", this.$onScrollLeftChange);
 
             var selection = this.session.getSelection();
-            selection.removeEventListener("changeCursor", this.$onCursorChange);
-            selection.removeEventListener("changeSelection", this.$onSelectionChange);
+            selection.off("changeCursor", this.$onCursorChange);
+            selection.off("changeSelection", this.$onSelectionChange);
         }
 
         this.session = session;
         if (session) {
             this.$onDocumentChange = this.onDocumentChange.bind(this);
-            session.addEventListener("change", this.$onDocumentChange);
+            session.on("change", this.$onDocumentChange);
             this.renderer.setSession(session);
     
             this.$onChangeMode = this.onChangeMode.bind(this);
-            session.addEventListener("changeMode", this.$onChangeMode);
+            session.on("changeMode", this.$onChangeMode);
     
             this.$onTokenizerUpdate = this.onTokenizerUpdate.bind(this);
-            session.addEventListener("tokenizerUpdate", this.$onTokenizerUpdate);
+            session.on("tokenizerUpdate", this.$onTokenizerUpdate);
     
             this.$onChangeTabSize = this.renderer.onChangeTabSize.bind(this.renderer);
-            session.addEventListener("changeTabSize", this.$onChangeTabSize);
+            session.on("changeTabSize", this.$onChangeTabSize);
     
             this.$onChangeWrapLimit = this.onChangeWrapLimit.bind(this);
-            session.addEventListener("changeWrapLimit", this.$onChangeWrapLimit);
+            session.on("changeWrapLimit", this.$onChangeWrapLimit);
     
             this.$onChangeWrapMode = this.onChangeWrapMode.bind(this);
-            session.addEventListener("changeWrapMode", this.$onChangeWrapMode);
+            session.on("changeWrapMode", this.$onChangeWrapMode);
     
             this.$onChangeFold = this.onChangeFold.bind(this);
-            session.addEventListener("changeFold", this.$onChangeFold);
+            session.on("changeFold", this.$onChangeFold);
     
             this.$onChangeFrontMarker = this.onChangeFrontMarker.bind(this);
-            this.session.addEventListener("changeFrontMarker", this.$onChangeFrontMarker);
+            this.session.on("changeFrontMarker", this.$onChangeFrontMarker);
     
             this.$onChangeBackMarker = this.onChangeBackMarker.bind(this);
-            this.session.addEventListener("changeBackMarker", this.$onChangeBackMarker);
+            this.session.on("changeBackMarker", this.$onChangeBackMarker);
     
             this.$onChangeBreakpoint = this.onChangeBreakpoint.bind(this);
-            this.session.addEventListener("changeBreakpoint", this.$onChangeBreakpoint);
+            this.session.on("changeBreakpoint", this.$onChangeBreakpoint);
     
             this.$onChangeAnnotation = this.onChangeAnnotation.bind(this);
-            this.session.addEventListener("changeAnnotation", this.$onChangeAnnotation);
+            this.session.on("changeAnnotation", this.$onChangeAnnotation);
     
             this.$onCursorChange = this.onCursorChange.bind(this);
-            this.session.addEventListener("changeOverwrite", this.$onCursorChange);
+            this.session.on("changeOverwrite", this.$onCursorChange);
     
             this.$onScrollTopChange = this.onScrollTopChange.bind(this);
-            this.session.addEventListener("changeScrollTop", this.$onScrollTopChange);
+            this.session.on("changeScrollTop", this.$onScrollTopChange);
     
             this.$onScrollLeftChange = this.onScrollLeftChange.bind(this);
-            this.session.addEventListener("changeScrollLeft", this.$onScrollLeftChange);
+            this.session.on("changeScrollLeft", this.$onScrollLeftChange);
     
             this.selection = session.getSelection();
-            this.selection.addEventListener("changeCursor", this.$onCursorChange);
+            this.selection.on("changeCursor", this.$onCursorChange);
     
             this.$onSelectionChange = this.onSelectionChange.bind(this);
-            this.selection.addEventListener("changeSelection", this.$onSelectionChange);
+            this.selection.on("changeSelection", this.$onSelectionChange);
     
             this.onChangeMode();
     
-            this.$blockScrolling += 1;
             this.onCursorChange();
-            this.$blockScrolling -= 1;
     
             this.onScrollTopChange();
             this.onScrollLeftChange();
@@ -385,6 +400,9 @@ var Editor = function(renderer, session) {
         
         oldSession && oldSession._signal("changeEditor", {oldEditor: this});
         session && session._signal("changeEditor", {editor: this});
+        
+        if (session && session.bgTokenizer)
+            session.bgTokenizer.scheduleStart();
     };
 
     /**
@@ -429,7 +447,7 @@ var Editor = function(renderer, session) {
     /**
      *
      * Returns the currently highlighted selection.
-     * @returns {String} The highlighted selection
+     * @returns {Selection} The selection object
      **/
     this.getSelection = function() {
         return this.selection;
@@ -489,7 +507,7 @@ var Editor = function(renderer, session) {
      */
     this.getFontSize = function () {
         return this.getOption("fontSize") ||
-           dom.computedStyle(this.container, "fontSize");
+           dom.computedStyle(this.container).fontSize;
     };
 
     /**
@@ -609,12 +627,13 @@ var Editor = function(renderer, session) {
             var range = new Range(row, column, row, column+token.value.length);
             
             //remove range if different
-            if (session.$tagHighlight && range.compareRange(session.$backMarkers[session.$tagHighlight].range)!==0) {
+            var sbm = session.$backMarkers[session.$tagHighlight];
+            if (session.$tagHighlight && sbm != undefined && range.compareRange(sbm.range) !== 0) {
                 session.removeMarker(session.$tagHighlight);
                 session.$tagHighlight = null;
             }
             
-            if (range && !session.$tagHighlight)
+            if (!session.$tagHighlight)
                 session.$tagHighlight = session.addMarker(range, "ace_bracket", "text");
         }, 50);
     };
@@ -624,12 +643,13 @@ var Editor = function(renderer, session) {
      * Brings the current `textInput` into focus.
      **/
     this.focus = function() {
-        // Safari needs the timeout
-        // iOS and Firefox need it called immediately
-        // to be on the save side we do both
+        // focusing after timeout is not needed now, but some code using ace
+        // depends on being able to call focus when textarea is not visible, 
+        // so to keep backwards compatibility we keep this until the next major release
         var _self = this;
         setTimeout(function() {
-            _self.textInput.focus();
+            if (!_self.isFocused())
+                _self.textInput.focus();
         });
         this.textInput.focus();
     };
@@ -726,14 +746,6 @@ var Editor = function(renderer, session) {
     this.onCursorChange = function() {
         this.$cursorChange();
 
-        if (!this.$blockScrolling) {
-            config.warn("Automatically scrolling cursor into view after selection change",
-                "this will be disabled in the next version",
-                "set editor.$blockScrolling = Infinity to disable this message"
-            );
-            this.renderer.scrollCursorIntoView();
-        }
-
         this.$highlightBrackets();
         this.$highlightTags();
         this.$updateHighlightActiveLine();
@@ -745,8 +757,10 @@ var Editor = function(renderer, session) {
 
         var highlight;
         if (this.$highlightActiveLine) {
-            if ((this.$selectionStyle != "line" || !this.selection.isMultiLine()))
+            if (this.$selectionStyle != "line" || !this.selection.isMultiLine())
                 highlight = this.getCursorPosition();
+            if (this.renderer.theme && this.renderer.theme.$selectionColorConflict && !this.selection.isEmpty())
+                highlight = false;
             if (this.renderer.$maxLines && this.session.getLength() === 1 && !(this.renderer.$minLines > 1))
                 highlight = false;
         }
@@ -795,20 +809,14 @@ var Editor = function(renderer, session) {
         if (selection.isEmpty() || selection.isMultiLine())
             return;
 
-        var startOuter = selection.start.column - 1;
-        var endOuter = selection.end.column + 1;
+        var startColumn = selection.start.column;
+        var endColumn = selection.end.column;
         var line = session.getLine(selection.start.row);
-        var lineCols = line.length;
-        var needle = line.substring(Math.max(startOuter, 0),
-                                    Math.min(endOuter, lineCols));
-
-        // Make sure the outer characters are not part of the word.
-        if ((startOuter >= 0 && /^[\w\d]/.test(needle)) ||
-            (endOuter <= lineCols && /[\w\d]$/.test(needle)))
-            return;
-
-        needle = line.substring(selection.start.column, selection.end.column);
-        if (!/^[\w\d]+$/.test(needle))
+        
+        var needle = line.substring(startColumn, endColumn);
+        // maximum allowed size for regular expressions in 32000, 
+        // but getting close to it has significant impact on the performance
+        if (needle.length > 5000 || !/[\w\d]/.test(needle))
             return;
 
         var re = this.$search.$assembleRegExp({
@@ -816,7 +824,11 @@ var Editor = function(renderer, session) {
             caseSensitive: true,
             needle: needle
         });
-
+        
+        var wordWithBoundary = line.substring(startColumn - 1, endColumn + 1);
+        if (!re.test(wordWithBoundary))
+            return;
+        
         return re;
     };
 
@@ -880,12 +892,25 @@ var Editor = function(renderer, session) {
     /**
      * Returns the string of text currently highlighted.
      * @returns {String}
-     * @deprecated Use getSelectedText instead.
      **/
     this.getCopyText = function() {
         var text = this.getSelectedText();
-        this._signal("copy", text);
-        return text;
+        var nl = this.session.doc.getNewLineCharacter();
+        var copyLine= false;
+        if (!text && this.$copyWithEmptySelection) {
+            copyLine = true;
+            var ranges = this.selection.getAllRanges();
+            for (var i = 0; i < ranges.length; i++) {
+                var range = ranges[i];
+                if (i && ranges[i - 1].start.row == range.start.row)
+                    continue;
+                text += this.session.getLine(range.start.row) + nl;
+            }
+        }
+        var e = {text: text};
+        this._signal("copy", e);
+        clipboard.lineMode = copyLine ? e.text : "";
+        return e.text;
     };
 
     /**
@@ -925,8 +950,18 @@ var Editor = function(renderer, session) {
             e = {text: e};
         this._signal("paste", e);
         var text = e.text;
+
+        var lineMode = text == clipboard.lineMode;
+        var session = this.session;
         if (!this.inMultiSelectMode || this.inVirtualSelectionMode) {
-            this.insert(text);
+            if (lineMode)
+                session.insert({ row: this.selection.lead.row, column: 0 }, text);
+            else
+                this.insert(text);
+        } else if (lineMode) {
+            this.selection.rangeList.ranges.forEach(function(range) {
+                session.insert({ row: range.start.row, column: 0 }, text);
+            });
         } else {
             var lines = text.split(/\r\n|\r|\n/);
             var ranges = this.selection.rangeList.ranges;
@@ -937,9 +972,9 @@ var Editor = function(renderer, session) {
             for (var i = ranges.length; i--;) {
                 var range = ranges[i];
                 if (!range.isEmpty())
-                    this.session.remove(range);
+                    session.remove(range);
     
-                this.session.insert(range.start, lines[i]);
+                session.insert(range.start, lines[i]);
             }
         }
     };
@@ -963,8 +998,11 @@ var Editor = function(renderer, session) {
             var transform = mode.transformAction(session.getState(cursor.row), 'insertion', this, session, text);
             if (transform) {
                 if (text !== transform.text) {
-                    this.session.mergeUndoDeltas = false;
-                    this.$mergeNextCommand = false;
+                    // keep automatic insertion in a separate delta, unless it is in multiselect mode
+                    if (!this.inVirtualSelectionMode) {
+                        this.session.mergeUndoDeltas = false;
+                        this.mergeNextCommand = false;
+                    }
                 }
                 text = transform.text;
 
@@ -980,7 +1018,7 @@ var Editor = function(renderer, session) {
             cursor = this.session.remove(range);
             this.clearSelection();
         }
-        else if (this.session.getOverwrite()) {
+        else if (this.session.getOverwrite() && text.indexOf("\n") == -1) {
             var range = new Range.fromPoints(cursor, cursor);
             range.end.column += text.length;
             this.session.remove(range);
@@ -1024,8 +1062,36 @@ var Editor = function(renderer, session) {
             mode.autoOutdent(lineState, session, cursor.row);
     };
 
-    this.onTextInput = function(text) {
-        this.keyBinding.onTextInput(text);
+    this.onTextInput = function(text, composition) {
+        if (!composition)
+            return this.keyBinding.onTextInput(text);
+        
+        this.startOperation({command: { name: "insertstring" }});
+        var applyComposition = this.applyComposition.bind(this, text, composition);
+        if (this.selection.rangeCount)
+            this.forEachSelection(applyComposition);
+        else
+            applyComposition();
+        this.endOperation();
+    };
+    
+    this.applyComposition = function(text, composition) {
+        if (composition.extendLeft || composition.extendRight) {
+            var r = this.selection.getRange();
+            r.start.column -= composition.extendLeft;
+            r.end.column += composition.extendRight;
+            this.selection.setRange(r);
+            if (!text && !r.isEmpty())
+                this.remove();
+        }
+        if (text || !this.selection.isEmpty())
+            this.insert(text, true);
+        if (composition.restoreStart || composition.restoreEnd) {
+            var r = this.selection.getRange();
+            r.start.column -= composition.restoreStart;
+            r.end.column -= composition.restoreEnd;
+            this.selection.setRange(r);
+        }
     };
 
     this.onCommandKey = function(e, hashId, keyCode) {
@@ -1033,8 +1099,8 @@ var Editor = function(renderer, session) {
     };
 
     /**
-     * Pass in `true` to enable overwrites in your session, or `false` to disable. If overwrites is enabled, any text you enter will type over any text after it. If the value of `overwrite` changes, this function also emites the `changeOverwrite` event.
-     * @param {Boolean} overwrite Defines wheter or not to set overwrites
+     * Pass in `true` to enable overwrites in your session, or `false` to disable. If overwrites is enabled, any text you enter will type over any text after it. If the value of `overwrite` changes, this function also emits the `changeOverwrite` event.
+     * @param {Boolean} overwrite Defines whether or not to set overwrites
      *
      *
      * @related EditSession.setOverwrite
@@ -1360,7 +1426,8 @@ var Editor = function(renderer, session) {
     this.removeToLineStart = function() {
         if (this.selection.isEmpty())
             this.selection.selectLineStart();
-
+        if (this.selection.isEmpty())
+            this.selection.selectLeft();
         this.session.remove(this.getSelectionRange());
         this.clearSelection();
     };
@@ -1420,6 +1487,7 @@ var Editor = function(renderer, session) {
             range = new Range(cursor.row, column-2, cursor.row, column);
         }
         this.session.replace(range, swap);
+        this.session.selection.moveToPosition(range.end);
     };
 
     /**
@@ -1484,7 +1552,7 @@ var Editor = function(renderer, session) {
             var indentString = lang.stringRepeat(" ", count);
         } else {
             var count = column % size;
-            while (line[range.start.column] == " " && count) {
+            while (line[range.start.column - 1] == " " && count) {
                 range.start.column--;
                 count--;
             }
@@ -1518,7 +1586,7 @@ var Editor = function(renderer, session) {
         var session = this.session;
 
         var lines = [];
-        for (i = rows.first; i <= rows.last; i++)
+        for (var i = rows.first; i <= rows.last; i++)
             lines.push(session.getLine(i));
 
         lines.sort(function(a, b) {
@@ -1619,6 +1687,84 @@ var Editor = function(renderer, session) {
                 //reposition the cursor
                 this.moveCursorTo(row, Math.max(nr.start +1, column + nnr.length - nr.value.length));
 
+            }
+        } else {
+            this.toggleWord();
+        }
+    };
+
+    this.$toggleWordPairs = [
+        ["first", "last"],
+        ["true", "false"],
+        ["yes", "no"],
+        ["width", "height"],
+        ["top", "bottom"],
+        ["right", "left"],
+        ["on", "off"],
+        ["x", "y"],
+        ["get", "set"],
+        ["max", "min"],
+        ["horizontal", "vertical"],
+        ["show", "hide"],
+        ["add", "remove"],
+        ["up", "down"],
+        ["before", "after"],
+        ["even", "odd"],
+        ["inside", "outside"],
+        ["next", "previous"],
+        ["increase", "decrease"],
+        ["attach", "detach"],
+        ["&&", "||"],
+        ["==", "!="]
+    ];
+
+    this.toggleWord = function () {
+        var row = this.selection.getCursor().row;
+        var column = this.selection.getCursor().column;
+        this.selection.selectWord();
+        var currentState = this.getSelectedText();
+        var currWordStart = this.selection.getWordRange().start.column;
+        var wordParts = currentState.replace(/([a-z]+|[A-Z]+)(?=[A-Z_]|$)/g, '$1 ').split(/\s/);
+        var delta = column - currWordStart - 1;
+        if (delta < 0) delta = 0;
+        var curLength = 0, itLength = 0;
+        var that = this;
+        if (currentState.match(/[A-Za-z0-9_]+/)) {
+            wordParts.forEach(function (item, i) {
+                itLength = curLength + item.length;
+                if (delta >= curLength && delta <= itLength) {
+                    currentState = item;
+                    that.selection.clearSelection();
+                    that.moveCursorTo(row, curLength + currWordStart);
+                    that.selection.selectTo(row, itLength + currWordStart);
+                }
+                curLength = itLength;
+            });
+        }
+
+        var wordPairs = this.$toggleWordPairs;
+        var reg;
+        for (var i = 0; i < wordPairs.length; i++) {
+            var item = wordPairs[i];
+            for (var j = 0; j <= 1; j++) {
+                var negate = +!j;
+                var firstCondition = currentState.match(new RegExp('^\\s?_?(' + lang.escapeRegExp(item[j]) + ')\\s?$', 'i'));
+                if (firstCondition) {
+                    var secondCondition = currentState.match(new RegExp('([_]|^|\\s)(' + lang.escapeRegExp(firstCondition[1]) + ')($|\\s)', 'g'));
+                    if (secondCondition) {
+                        reg = currentState.replace(new RegExp(lang.escapeRegExp(item[j]), 'i'), function (result) {
+                            var res = item[negate];
+                            if (result.toUpperCase() == result) {
+                                res = res.toUpperCase();
+                            } else if (result.charAt(0).toUpperCase() == result.charAt(0)) {
+                                res = res.substr(0, 0) + item[negate].charAt(0).toUpperCase() + res.substr(1);
+                            }
+                            return res;
+                        });
+                        this.insert(reg);
+                        reg = "";
+                    }
+                }
             }
         }
     };
@@ -1777,8 +1923,8 @@ var Editor = function(renderer, session) {
         };
     };
 
-    this.onCompositionStart = function(text) {
-        this.renderer.showComposition(this.getCursorPosition());
+    this.onCompositionStart = function(compositionState) {
+        this.renderer.showComposition(compositionState);
     };
 
     this.onCompositionUpdate = function(text) {
@@ -1831,7 +1977,7 @@ var Editor = function(renderer, session) {
     };
 
     /**
-     * Returns the number of currently visibile rows.
+     * Returns the number of currently visible rows.
      * @returns {Number}
      **/
     this.$getVisibleRowCount = function() {
@@ -1843,7 +1989,6 @@ var Editor = function(renderer, session) {
         var config = this.renderer.layerConfig;
         var rows = dir * Math.floor(config.height / config.lineHeight);
 
-        this.$blockScrolling++;
         if (select === true) {
             this.selection.$moveSelection(function(){
                 this.moveCursorBy(rows, 0);
@@ -1852,7 +1997,6 @@ var Editor = function(renderer, session) {
             this.selection.moveCursorBy(rows, 0);
             this.selection.clearSelection();
         }
-        this.$blockScrolling--;
 
         var scrollTop = renderer.scrollTop;
 
@@ -1977,9 +2121,7 @@ var Editor = function(renderer, session) {
      * @related Selection.selectAll
      **/
     this.selectAll = function() {
-        this.$blockScrolling += 1;
         this.selection.selectAll();
-        this.$blockScrolling -= 1;
     };
 
     /**
@@ -2072,7 +2214,7 @@ var Editor = function(renderer, session) {
                     }
                 }
             }
-            else if (token && token.type.indexOf('tag-name') !== -1) {
+            else if (token.type.indexOf('tag-name') !== -1) {
                 if (isNaN(depth[token.value])) {
                     depth[token.value] = 0;
                 }
@@ -2181,7 +2323,7 @@ var Editor = function(renderer, session) {
     };
 
     /**
-     * Moves the cursor to the specified line number, and also into the indiciated column.
+     * Moves the cursor to the specified line number, and also into the indicated column.
      * @param {Number} lineNumber The line number to go to
      * @param {Number} column A column number to go to
      * @param {Boolean} animate If `true` animates scolling
@@ -2191,11 +2333,9 @@ var Editor = function(renderer, session) {
         this.selection.clearSelection();
         this.session.unfold({row: lineNumber - 1, column: column || 0});
 
-        this.$blockScrolling += 1;
         // todo: find a way to automatically exit multiselect mode
         this.exitMultiSelectMode && this.exitMultiSelectMode();
         this.moveCursorTo(lineNumber - 1, column || 0);
-        this.$blockScrolling -= 1;
 
         if (!this.isRowFullyVisible(lineNumber - 1))
             this.scrollToLine(lineNumber - 1, true, animate);
@@ -2338,7 +2478,7 @@ var Editor = function(renderer, session) {
     };
 
     /**
-     * Replaces the first occurance of `options.needle` with the value in `replacement`.
+     * Replaces the first occurrence of `options.needle` with the value in `replacement`.
      * @param {String} replacement The text to replace with
      * @param {Object} options The [[Search `Search`]] options to use
      *
@@ -2356,16 +2496,15 @@ var Editor = function(renderer, session) {
         if (this.$tryReplace(range, replacement)) {
             replaced = 1;
         }
-        if (range !== null) {
-            this.selection.setSelectionRange(range);
-            this.renderer.scrollSelectionIntoView(range.start, range.end);
-        }
+
+        this.selection.setSelectionRange(range);
+        this.renderer.scrollSelectionIntoView(range.start, range.end);
 
         return replaced;
     };
 
     /**
-     * Replaces all occurances of `options.needle` with the value in `replacement`.
+     * Replaces all occurrences of `options.needle` with the value in `replacement`.
      * @param {String} replacement The text to replace with
      * @param {Object} options The [[Search `Search`]] options to use
      *
@@ -2381,8 +2520,6 @@ var Editor = function(renderer, session) {
         if (!ranges.length)
             return replaced;
 
-        this.$blockScrolling += 1;
-
         var selection = this.getSelectionRange();
         this.selection.moveTo(0, 0);
 
@@ -2393,7 +2530,6 @@ var Editor = function(renderer, session) {
         }
 
         this.selection.setSelectionRange(selection);
-        this.$blockScrolling -= 1;
 
         return replaced;
     };
@@ -2491,10 +2627,8 @@ var Editor = function(renderer, session) {
     };
 
     this.revealRange = function(range, animate) {
-        this.$blockScrolling += 1;
         this.session.unfold(range);
         this.selection.setSelectionRange(range);
-        this.$blockScrolling -= 1;
 
         var scrollTop = this.renderer.scrollTop;
         this.renderer.scrollSelectionIntoView(range.start, range.end, 0.5);
@@ -2507,9 +2641,7 @@ var Editor = function(renderer, session) {
      * @related UndoManager.undo
      **/
     this.undo = function() {
-        this.$blockScrolling++;
-        this.session.getUndoManager().undo();
-        this.$blockScrolling--;
+        this.session.getUndoManager().undo(this.session);
         this.renderer.scrollCursorIntoView(null, 0.5);
     };
 
@@ -2518,9 +2650,7 @@ var Editor = function(renderer, session) {
      * @related UndoManager.redo
      **/
     this.redo = function() {
-        this.$blockScrolling++;
-        this.session.getUndoManager().redo();
-        this.$blockScrolling--;
+        this.session.getUndoManager().redo(this.session);
         this.renderer.scrollCursorIntoView(null, 0.5);
     };
 
@@ -2588,9 +2718,9 @@ var Editor = function(renderer, session) {
             if (enable)
                 return;
             delete this.setAutoScrollEditorIntoView;
-            this.removeEventListener("changeSelection", onChangeSelection);
-            this.renderer.removeEventListener("afterRender", onAfterRender);
-            this.renderer.removeEventListener("beforeRender", onBeforeRender);
+            this.off("changeSelection", onChangeSelection);
+            this.renderer.off("afterRender", onAfterRender);
+            this.renderer.off("beforeRender", onBeforeRender);
         };
     };
 
@@ -2603,6 +2733,16 @@ var Editor = function(renderer, session) {
         cursorLayer.setSmoothBlinking(/smooth/.test(style));
         cursorLayer.isBlinking = !this.$readOnly && style != "wide";
         dom.setCssClass(cursorLayer.element, "ace_slim-cursors", /slim/.test(style));
+    };
+
+    /**
+     * opens a prompt displaying message
+     **/
+    this.prompt = function(message, options, callback) {
+        var editor = this;
+        config.loadModule("./ext/prompt", function (module) {
+            module.prompt(editor, message, options, callback);
+        });
     };
 
 }).call(Editor.prototype);
@@ -2627,9 +2767,14 @@ config.defineOptions(Editor.prototype, "editor", {
     },
     readOnly: {
         set: function(readOnly) {
-            // disabled to not break vim mode!
-            // this.textInput.setReadOnly(readOnly);
+            this.textInput.setReadOnly(readOnly);
             this.$resetCursorStyle(); 
+        },
+        initialValue: false
+    },
+    copyWithEmptySelection: {
+        set: function(value) {
+            this.textInput.setCopyWithEmptySelection(value);
         },
         initialValue: false
     },
@@ -2645,7 +2790,44 @@ config.defineOptions(Editor.prototype, "editor", {
     behavioursEnabled: {initialValue: true},
     wrapBehavioursEnabled: {initialValue: true},
     autoScrollEditorIntoView: {
-        set: function(val) {this.setAutoScrollEditorIntoView(val)}
+        set: function(val) {this.setAutoScrollEditorIntoView(val);}
+    },
+    keyboardHandler: {
+        set: function(val) { this.setKeyboardHandler(val); },
+        get: function() { return this.$keybindingId; },
+        handlesSet: true
+    },
+    value: {
+        set: function(val) { this.session.setValue(val); },
+        get: function() { return this.getValue(); },
+        handlesSet: true,
+        hidden: true
+    },
+    session: {
+        set: function(val) { this.setSession(val); },
+        get: function() { return this.session; },
+        handlesSet: true,
+        hidden: true
+    },
+    
+    showLineNumbers: {
+        set: function(show) {
+            this.renderer.$gutterLayer.setShowLineNumbers(show);
+            this.renderer.$loop.schedule(this.renderer.CHANGE_GUTTER);
+            if (show && this.$relativeLineNumbers)
+                relativeNumberRenderer.attach(this);
+            else
+                relativeNumberRenderer.detach(this);
+        },
+        initialValue: true
+    },
+    relativeLineNumbers: {
+        set: function(value) {
+            if (this.$showLineNumbers && value)
+                relativeNumberRenderer.attach(this);
+            else
+                relativeNumberRenderer.detach(this);
+        }
     },
 
     hScrollBarAlwaysVisible: "renderer",
@@ -2658,9 +2840,8 @@ config.defineOptions(Editor.prototype, "editor", {
     printMargin: "renderer",
     fadeFoldWidgets: "renderer",
     showFoldWidgets: "renderer",
-    showLineNumbers: "renderer",
-    showGutter: "renderer",
     displayIndentGuides: "renderer",
+    showGutter: "renderer",
     fontSize: "renderer",
     fontFamily: "renderer",
     maxLines: "renderer",
@@ -2668,11 +2849,14 @@ config.defineOptions(Editor.prototype, "editor", {
     scrollPastEnd: "renderer",
     fixedWidthGutter: "renderer",
     theme: "renderer",
+    hasCssTransforms: "renderer",
+    maxPixelHeight: "renderer",
+    useTextareaForIME: "renderer",
 
     scrollSpeed: "$mouseHandler",
     dragDelay: "$mouseHandler",
     dragEnabled: "$mouseHandler",
-    focusTimout: "$mouseHandler",
+    focusTimeout: "$mouseHandler",
     tooltipFollowsMouse: "$mouseHandler",
 
     firstLineNumber: "session",
@@ -2680,12 +2864,41 @@ config.defineOptions(Editor.prototype, "editor", {
     newLineMode: "session",
     useWorker: "session",
     useSoftTabs: "session",
+    navigateWithinSoftTabs: "session",
     tabSize: "session",
     wrap: "session",
     indentedSoftWrap: "session",
     foldStyle: "session",
     mode: "session"
 });
+
+
+var relativeNumberRenderer = {
+    getText: function(session, row) {
+        return (Math.abs(session.selection.lead.row - row) || (row + 1 + (row < 9 ? "\xb7" : ""))) + "";
+    },
+    getWidth: function(session, lastLineNumber, config) {
+        return Math.max(
+            lastLineNumber.toString().length,
+            (config.lastRow + 1).toString().length,
+            2
+        ) * config.characterWidth;
+    },
+    update: function(e, editor) {
+        editor.renderer.$loop.schedule(editor.renderer.CHANGE_GUTTER);
+    },
+    attach: function(editor) {
+        editor.renderer.$gutterLayer.$renderer = this;
+        editor.on("changeSelection", this.update);
+        this.update(null, editor);
+    },
+    detach: function(editor) {
+        if (editor.renderer.$gutterLayer.$renderer == this)
+            editor.renderer.$gutterLayer.$renderer = null;
+        editor.off("changeSelection", this.update);
+        this.update(null, editor);
+    }
+};
 
 exports.Editor = Editor;
 });

@@ -48,9 +48,9 @@ var SwiftHighlightRules = function() {
             + "|safe|Self|self|set|struct|subscript|switch|Type|typealias"
             + "|unowned|unsafe|var|weak|where|while|willSet"
             + "|convenience|dynamic|final|infix|lazy|mutating|nonmutating|optional|override|postfix"
-            + "|prefix|required|static",
+            + "|prefix|required|static|guard|defer",
         "storage.type": "bool|double|Double"
-            + "|extension|float|Float|int|Int|private|public|string|String",
+            + "|extension|float|Float|int|Int|open|internal|fileprivate|private|public|string|String",
         "constant.language":
             "false|Infinity|NaN|nil|no|null|null|off|on|super|this|true|undefined|yes",
         "support.function":
@@ -114,7 +114,7 @@ var SwiftHighlightRules = function() {
                 return val == open ? "paren.lparen" : "paren.rparen";
             },
             nextState: interpStart
-        } 
+        }; 
         return [counter, mainRule];
     }
     
@@ -124,7 +124,7 @@ var SwiftHighlightRules = function() {
                 regex : "\\/\\/(?=.)",
                 next : [
                     DocCommentHighlightRules.getTagRule(),
-                    {token : "comment", regex : "$|^", nextState : "start"},
+                    {token : "comment", regex : "$|^", next: "start"},
                     {defaultToken : "comment", caseInsensitive: true}
                 ]
             },
@@ -138,8 +138,8 @@ var SwiftHighlightRules = function() {
                     {token : "comment.start", regex : /\/\*/, push: "nested_comment"},
                     {token : "comment.end", regex : "\\*\\/", next : "pop"},
                     {defaultToken : "comment", caseInsensitive: true}
-                ],
-            },
+                ]
+            }
         ];
     }
     
@@ -152,7 +152,7 @@ var SwiftHighlightRules = function() {
                 error: /\\./,
                 multiline: false
             }),
-            comments({type: "c", nestable: true}),
+            comments(),
             {
                  regex: /@[a-zA-Z_$][a-zA-Z_$\d\u0080-\ufffe]*/,
                  token: "variable.parameter"
@@ -166,7 +166,7 @@ var SwiftHighlightRules = function() {
                 regex : /[+-]?(?:0(?:b[01]+|o[0-7]+|x[\da-fA-F])|\d+(?:(?:\.\d*)?(?:[PpEe][+-]?\d+)?)\b)/
             }, {
                 token : "keyword.operator",
-                regex : /--|\+\+|===|==|=|!=|!==|<=|>=|<<=|>>=|>>>=|<>|<|>|!|&&|\|\||\?\:|[!$%&*+\-~\/^]=?/,
+                regex : /--|\+\+|===|==|=|!=|!==|<=|>=|<<=|>>=|>>>=|<>|<|>|!|&&|\|\||\?:|[!$%&*+\-~\/^]=?/,
                 next  : "start"
             }, {
                 token : "punctuation.operator",
@@ -179,7 +179,7 @@ var SwiftHighlightRules = function() {
             }, {
                 token : "paren.rparen",
                 regex : /[\])}]/
-            }, 
+            } 
             
         ]
     };

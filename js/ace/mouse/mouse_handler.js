@@ -50,7 +50,9 @@ var MouseHandler = function(editor) {
     var focusEditor = function(e) {
         // because we have to call event.preventDefault() any window on ie and iframes
         // on other browsers do not get focus, so we have to call window.focus() here
-        if (!document.hasFocus || !document.hasFocus())
+        var windowBlurred = !document.hasFocus || !document.hasFocus()
+            || !editor.isFocused() && document.activeElement == (editor.textInput && editor.textInput.getElement());
+        if (windowBlurred)
             window.focus();
         editor.focus();
     };
@@ -58,15 +60,12 @@ var MouseHandler = function(editor) {
     var mouseTarget = editor.renderer.getMouseEventTarget();
     event.addListener(mouseTarget, "click", this.onMouseEvent.bind(this, "click"));
     event.addListener(mouseTarget, "mousemove", this.onMouseMove.bind(this, "mousemove"));
-    event.addMultiMouseDownListener(mouseTarget, [400, 300, 250], this, "onMouseEvent");
-    if (editor.renderer.scrollBarV) {
-        event.addMultiMouseDownListener(editor.renderer.scrollBarV.inner, [400, 300, 250], this, "onMouseEvent");
-        event.addMultiMouseDownListener(editor.renderer.scrollBarH.inner, [400, 300, 250], this, "onMouseEvent");
-        if (useragent.isIE) {
-            event.addListener(editor.renderer.scrollBarV.element, "mousedown", focusEditor);
-            event.addListener(editor.renderer.scrollBarH.element, "mousedown", focusEditor);
-        }
-    }
+    event.addMultiMouseDownListener([
+        mouseTarget,
+        editor.renderer.scrollBarV && editor.renderer.scrollBarV.inner,
+        editor.renderer.scrollBarH && editor.renderer.scrollBarH.inner,
+        editor.textInput && editor.textInput.getElement()
+    ].filter(Boolean), [400, 300, 250], this, "onMouseEvent");
     event.addMouseWheelListener(editor.container, this.onMouseWheel.bind(this, "mousewheel"));
     event.addTouchMoveListener(editor.container, this.onTouchMove.bind(this, "touchmove"));
 
@@ -77,11 +76,11 @@ var MouseHandler = function(editor) {
     event.addListener(gutterEl, "mousemove", this.onMouseEvent.bind(this, "guttermousemove"));
 
     event.addListener(mouseTarget, "mousedown", focusEditor);
-
-    event.addListener(gutterEl, "mousedown", function(e) {
-        editor.focus();
-        return event.preventDefault(e);
-    });
+    event.addListener(gutterEl, "mousedown", focusEditor);
+    if (useragent.isIE && editor.renderer.scrollBarV) {
+        event.addListener(editor.renderer.scrollBarV.element, "mousedown", focusEditor);
+        event.addListener(editor.renderer.scrollBarH.element, "mousedown", focusEditor);
+    }
 
     editor.on("mousemove", function(e){
         if (_self.state || _self.$dragDelay || !_self.$dragEnabled)
@@ -141,6 +140,7 @@ var MouseHandler = function(editor) {
         this.isMousePressed = true;
 
         // do not move textarea during selection
+        var editor = this.editor;
         var renderer = this.editor.renderer;
         if (renderer.$keepTextAreaAtCursor)
             renderer.$keepTextAreaAtCursor = null;
@@ -161,6 +161,7 @@ var MouseHandler = function(editor) {
         };
 
         var onCaptureEnd = function(e) {
+            editor.off("beforeEndOperation", onOperationEnd);
             clearInterval(timerId);
             onCaptureInterval();
             self[self.state + "End"] && self[self.state + "End"](e);
@@ -172,6 +173,7 @@ var MouseHandler = function(editor) {
             self.isMousePressed = false;
             self.$onCaptureMouseMove = self.releaseMouse = null;
             e && self.onMouseEvent("mouseup", e);
+            editor.endOperation();
         };
 
         var onCaptureInterval = function() {
@@ -182,6 +184,20 @@ var MouseHandler = function(editor) {
         if (useragent.isOldIE && ev.domEvent.type == "dblclick") {
             return setTimeout(function() {onCaptureEnd(ev);});
         }
+
+        var onOperationEnd = function(e) {
+            if (!self.releaseMouse) return;
+            // some touchpads fire mouseup event after a slight delay, 
+            // which can cause problems if user presses a keyboard shortcut quickly
+            if (editor.curOp.command.name && editor.curOp.selectionChanged) {
+                self[self.state + "End"] && self[self.state + "End"]();
+                self.state = "";
+                self.releaseMouse();
+            }
+        };
+
+        editor.on("beforeEndOperation", onOperationEnd);
+        editor.startOperation({command: {name: "mouse"}});
 
         self.$onCaptureMouseMove = onMouseMove;
         self.releaseMouse = event.capture(this.editor.container, onMouseMove, onCaptureEnd);
@@ -205,7 +221,7 @@ config.defineOptions(MouseHandler.prototype, "mouseHandler", {
     scrollSpeed: {initialValue: 2},
     dragDelay: {initialValue: (useragent.isMac ? 150 : 0)},
     dragEnabled: {initialValue: true},
-    focusTimout: {initialValue: 0},
+    focusTimeout: {initialValue: 0},
     tooltipFollowsMouse: {initialValue: true}
 });
 

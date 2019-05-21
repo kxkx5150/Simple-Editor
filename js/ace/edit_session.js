@@ -33,6 +33,7 @@ define(function(require, exports, module) {
 
 var oop = require("./lib/oop");
 var lang = require("./lib/lang");
+var BidiHandler = require("./bidihandler").BidiHandler;
 var config = require("./config");
 var EventEmitter = require("./lib/event_emitter").EventEmitter;
 var Selection = require("./selection").Selection;
@@ -132,10 +133,9 @@ var SearchHighlight = require("./search_highlight").SearchHighlight;
 //}
 
 /**
- *
  * Sets up a new `EditSession` and associates it with the given `Document` and `TextMode`.
  * @param {Document | String} text [If `text` is a `Document`, it associates the `EditSession` with it. Otherwise, a new `Document` is created, with the initial text]{: #textParam}
- * @param {TextMode} mode [The inital language mode to use for the document]{: #modeParam}
+ * @param {TextMode} mode [The initial language mode to use for the document]{: #modeParam}
  *
  * @constructor
  **/
@@ -149,6 +149,7 @@ var EditSession = function(text, mode) {
     this.$undoSelect = true;
 
     this.$foldData = [];
+    this.id = "session" + (++EditSession.$uid);
     this.$foldData.toString = function() {
         return this.join("\n");
     };
@@ -160,12 +161,15 @@ var EditSession = function(text, mode) {
 
     this.setDocument(text);
     this.selection = new Selection(this);
+    this.$bidiHandler = new BidiHandler(this);
 
     config.resetOptions(this);
     this.setMode(mode);
     config._signal("session", this);
 };
 
+
+EditSession.$uid = 0;
 
 (function() {
 
@@ -251,19 +255,21 @@ var EditSession = function(text, mode) {
 
     this.onChange = function(delta) {
         this.$modified = true;
-
+        this.$bidiHandler.onChange(delta);
         this.$resetRowCache(delta.start.row);
 
         var removedFolds = this.$updateInternalDataOnChange(delta);
-        if (!this.$fromUndo && this.$undoManager && !delta.ignore) {
-            this.$deltasDoc.push(delta);
-            if (removedFolds && removedFolds.length != 0) {
-                this.$deltasFold.push({
+        if (!this.$fromUndo && this.$undoManager) {
+            if (removedFolds && removedFolds.length) {
+                this.$undoManager.add({
                     action: "removeFolds",
                     folds:  removedFolds
-                });
+                }, this.mergeUndoDeltas);
+                this.mergeUndoDeltas = true;
             }
-
+            this.$undoManager.add(delta, this.mergeUndoDeltas);
+            this.mergeUndoDeltas = true;
+            
             this.$informUndoManager.schedule();
         }
 
@@ -272,44 +278,41 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Sets the session text.
-    * @param {String} text The new text to place
-    *
-    **/
+     * Sets the session text.
+     * @param {String} text The new text to place
+     *
+     **/
     this.setValue = function(text) {
         this.doc.setValue(text);
         this.selection.moveTo(0, 0);
 
         this.$resetRowCache(0);
-        this.$deltas = [];
-        this.$deltasDoc = [];
-        this.$deltasFold = [];
         this.setUndoManager(this.$undoManager);
         this.getUndoManager().reset();
     };
 
     /**
-    * Returns the current [[Document `Document`]] as a string.
-    * @method toString
-    * @returns {String}
-    * @alias EditSession.getValue
-    *
-    **/
+     * Returns the current [[Document `Document`]] as a string.
+     * @method toString
+     * @returns {String}
+     * @alias EditSession.getValue
+     *
+     **/
 
     /**
-    * Returns the current [[Document `Document`]] as a string.
-    * @method getValue
-    * @returns {String}
-    * @alias EditSession.toString
-    **/
+     * Returns the current [[Document `Document`]] as a string.
+     * @method getValue
+     * @returns {String}
+     * @alias EditSession.toString
+     **/
     this.getValue =
     this.toString = function() {
         return this.doc.getValue();
     };
 
     /**
-    * Returns the string of the current selection.
-    **/
+     * Returns selection object.
+     **/
     this.getSelection = function() {
         return this.selection;
     };
@@ -336,17 +339,17 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Returns an object indicating the token at the current row. The object has two properties: `index` and `start`.
-    * @param {Number} row The row number to retrieve from
-    * @param {Number} column The column number to retrieve from
-    *
-    *
-    **/
+     * Returns an object indicating the token at the current row. The object has two properties: `index` and `start`.
+     * @param {Number} row The row number to retrieve from
+     * @param {Number} column The column number to retrieve from
+     *
+     *
+     **/
     this.getTokenAt = function(row, column) {
         var tokens = this.bgTokenizer.getTokens(row);
         var token, c = 0;
         if (column == null) {
-            i = tokens.length - 1;
+            var i = tokens.length - 1;
             c = this.getLine(row).length;
         } else {
             for (var i = 0; i < tokens.length; i++) {
@@ -364,53 +367,27 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Sets the undo manager.
-    * @param {UndoManager} undoManager The new undo manager
-    *
-    *
-    **/
+     * Sets the undo manager.
+     * @param {UndoManager} undoManager The new undo manager
+     *
+     *
+     **/
     this.setUndoManager = function(undoManager) {
         this.$undoManager = undoManager;
-        this.$deltas = [];
-        this.$deltasDoc = [];
-        this.$deltasFold = [];
-
+        
         if (this.$informUndoManager)
             this.$informUndoManager.cancel();
-
+        
         if (undoManager) {
             var self = this;
-
+            undoManager.addSession(this);
             this.$syncInformUndoManager = function() {
                 self.$informUndoManager.cancel();
-
-                if (self.$deltasFold.length) {
-                    self.$deltas.push({
-                        group: "fold",
-                        deltas: self.$deltasFold
-                    });
-                    self.$deltasFold = [];
-                }
-
-                if (self.$deltasDoc.length) {
-                    self.$deltas.push({
-                        group: "doc",
-                        deltas: self.$deltasDoc
-                    });
-                    self.$deltasDoc = [];
-                }
-
-                if (self.$deltas.length > 0) {
-                    undoManager.execute({
-                        action: "aceupdate",
-                        args: [self.$deltas, self],
-                        merge: self.mergeUndoDeltas
-                    });
-                }
                 self.mergeUndoDeltas = false;
-                self.$deltas = [];
             };
             this.$informUndoManager = lang.delayedCall(this.$syncInformUndoManager);
+        } else {
+            this.$syncInformUndoManager = function() {};
         }
     };
 
@@ -425,19 +402,23 @@ var EditSession = function(text, mode) {
     this.$defaultUndoManager = {
         undo: function() {},
         redo: function() {},
-        reset: function() {}
+        reset: function() {},
+        add: function() {},
+        addSelection: function() {},
+        startNewGroup: function() {},
+        addSession: function() {}
     };
 
     /**
-    * Returns the current undo manager.
-    **/
+     * Returns the current undo manager.
+     **/
     this.getUndoManager = function() {
         return this.$undoManager || this.$defaultUndoManager;
     };
 
     /**
-    * Returns the current value for tabs. If the user is using soft tabs, this will be a series of spaces (defined by [[EditSession.getTabSize `getTabSize()`]]); otherwise it's simply `'\t'`.
-    **/
+     * Returns the current value for tabs. If the user is using soft tabs, this will be a series of spaces (defined by [[EditSession.getTabSize `getTabSize()`]]); otherwise it's simply `'\t'`.
+     **/
     this.getTabString = function() {
         if (this.getUseSoftTabs()) {
             return lang.stringRepeat(" ", this.getTabSize());
@@ -447,80 +428,92 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    /**
-    * Pass `true` to enable the use of soft tabs. Soft tabs means you're using spaces instead of the tab character (`'\t'`).
-    * @param {Boolean} useSoftTabs Value indicating whether or not to use soft tabs
-    **/
+     * Pass `true` to enable the use of soft tabs. Soft tabs means you're using spaces instead of the tab character (`'\t'`).
+     * @param {Boolean} useSoftTabs Value indicating whether or not to use soft tabs
+     **/
     this.setUseSoftTabs = function(val) {
         this.setOption("useSoftTabs", val);
     };
     /**
-    * Returns `true` if soft tabs are being used, `false` otherwise.
-    * @returns {Boolean}
-    **/
+     * Returns `true` if soft tabs are being used, `false` otherwise.
+     * @returns {Boolean}
+     **/
     this.getUseSoftTabs = function() {
         // todo might need more general way for changing settings from mode, but this is ok for now
         return this.$useSoftTabs && !this.$mode.$indentWithTabs;
     };
     /**
-    * Set the number of spaces that define a soft tab; for example, passing in `4` transforms the soft tabs to be equivalent to four spaces. This function also emits the `changeTabSize` event.
-    * @param {Number} tabSize The new tab size
-    **/
+     * Set the number of spaces that define a soft tab; for example, passing in `4` transforms the soft tabs to be equivalent to four spaces. This function also emits the `changeTabSize` event.
+     * @param {Number} tabSize The new tab size
+     **/
     this.setTabSize = function(tabSize) {
         this.setOption("tabSize", tabSize);
     };
     /**
-    * Returns the current tab size.
-    **/
+     * Returns the current tab size.
+     **/
     this.getTabSize = function() {
         return this.$tabSize;
     };
 
     /**
-    * Returns `true` if the character at the position is a soft tab.
-    * @param {Object} position The position to check
-    *
-    *
-    **/
+     * Returns `true` if the character at the position is a soft tab.
+     * @param {Object} position The position to check
+     *
+     **/
     this.isTabStop = function(position) {
         return this.$useSoftTabs && (position.column % this.$tabSize === 0);
     };
 
+    /**
+     * Set whether keyboard navigation of soft tabs moves the cursor within the soft tab, rather than over
+     * @param {Boolean} navigateWithinSoftTabs Value indicating whether or not to navigate within soft tabs
+     **/
+    this.setNavigateWithinSoftTabs = function (navigateWithinSoftTabs) {
+        this.setOption("navigateWithinSoftTabs", navigateWithinSoftTabs);
+    };
+    /**
+     * Returns `true` if keyboard navigation moves the cursor within soft tabs, `false` if it moves the cursor over soft tabs.
+     * @returns {Boolean}
+     **/
+    this.getNavigateWithinSoftTabs = function() {
+        return this.$navigateWithinSoftTabs;
+    };
+
     this.$overwrite = false;
     /**
-    * Pass in `true` to enable overwrites in your session, or `false` to disable.
-    *
-    * If overwrites is enabled, any text you enter will type over any text after it. If the value of `overwrite` changes, this function also emites the `changeOverwrite` event.
-    *
-    * @param {Boolean} overwrite Defines wheter or not to set overwrites
-    *
-    *
-    **/
+     * Pass in `true` to enable overwrites in your session, or `false` to disable.
+     *
+     * If overwrites is enabled, any text you enter will type over any text after it. If the value of `overwrite` changes, this function also emits the `changeOverwrite` event.
+     *
+     * @param {Boolean} overwrite Defines whether or not to set overwrites
+     *
+     *
+     **/
     this.setOverwrite = function(overwrite) {
         this.setOption("overwrite", overwrite);
     };
 
     /**
-    * Returns `true` if overwrites are enabled; `false` otherwise.
-    **/
+     * Returns `true` if overwrites are enabled; `false` otherwise.
+     **/
     this.getOverwrite = function() {
         return this.$overwrite;
     };
 
     /**
-    * Sets the value of overwrite to the opposite of whatever it currently is.
-    **/
+     * Sets the value of overwrite to the opposite of whatever it currently is.
+     **/
     this.toggleOverwrite = function() {
         this.setOverwrite(!this.$overwrite);
     };
 
     /**
-    * Adds `className` to the `row`, to be used for CSS stylings and whatnot.
-    * @param {Number} row The row number
-    * @param {String} className The class to add
-    *
-    *
-    **/
+     * Adds `className` to the `row`, to be used for CSS stylings and whatnot.
+     * @param {Number} row The row number
+     * @param {String} className The class to add
+     *
+     **/
     this.addGutterDecoration = function(row, className) {
         if (!this.$decorations[row])
             this.$decorations[row] = "";
@@ -529,32 +522,29 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Removes `className` from the `row`.
-    * @param {Number} row The row number
-    * @param {String} className The class to add
-    *
-    *
-    **/
+     * Removes `className` from the `row`.
+     * @param {Number} row The row number
+     * @param {String} className The class to add
+     *
+     **/
     this.removeGutterDecoration = function(row, className) {
         this.$decorations[row] = (this.$decorations[row] || "").replace(" " + className, "");
         this._signal("changeBreakpoint", {});
     };
 
     /**
-    * Returns an array of numbers, indicating which rows have breakpoints.
-    * @returns {[Number]}
-    **/
+     * Returns an array of strings, indicating the breakpoint class (if any) applied to each row.
+     * @returns {[String]}
+     **/
     this.getBreakpoints = function() {
         return this.$breakpoints;
     };
 
     /**
-    * Sets a breakpoint on every row number given by `rows`. This function also emites the `'changeBreakpoint'` event.
-    * @param {Array} rows An array of row indices
-    *
-    *
-    *
-    **/
+     * Sets a breakpoint on every row number given by `rows`. This function also emites the `'changeBreakpoint'` event.
+     * @param {Array} rows An array of row indices
+     *
+     **/
     this.setBreakpoints = function(rows) {
         this.$breakpoints = [];
         for (var i=0; i<rows.length; i++) {
@@ -564,20 +554,19 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Removes all breakpoints on the rows. This function also emites the `'changeBreakpoint'` event.
-    **/
+     * Removes all breakpoints on the rows. This function also emits the `'changeBreakpoint'` event.
+     **/
     this.clearBreakpoints = function() {
         this.$breakpoints = [];
         this._signal("changeBreakpoint", {});
     };
 
     /**
-    * Sets a breakpoint on the row number given by `rows`. This function also emites the `'changeBreakpoint'` event.
-    * @param {Number} row A row index
-    * @param {String} className Class of the breakpoint
-    *
-    *
-    **/
+     * Sets a breakpoint on the row number given by `row`. This function also emits the `'changeBreakpoint'` event.
+     * @param {Number} row A row index
+     * @param {String} className Class of the breakpoint
+     *
+     **/
     this.setBreakpoint = function(row, className) {
         if (className === undefined)
             className = "ace_breakpoint";
@@ -589,26 +578,24 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Removes a breakpoint on the row number given by `rows`. This function also emites the `'changeBreakpoint'` event.
-    * @param {Number} row A row index
-    *
-    *
-    **/
+     * Removes a breakpoint on the row number given by `row`. This function also emits the `'changeBreakpoint'` event.
+     * @param {Number} row A row index
+     *
+     **/
     this.clearBreakpoint = function(row) {
         delete this.$breakpoints[row];
         this._signal("changeBreakpoint", {});
     };
 
     /**
-    * Adds a new marker to the given `Range`. If `inFront` is `true`, a front marker is defined, and the `'changeFrontMarker'` event fires; otherwise, the `'changeBackMarker'` event fires.
-    * @param {Range} range Define the range of the marker
-    * @param {String} clazz Set the CSS class for the marker
-    * @param {Function | String} type Identify the type of the marker
-    * @param {Boolean} inFront Set to `true` to establish a front marker
-    *
-    *
-    * @return {Number} The new marker id
-    **/
+     * Adds a new marker to the given `Range`. If `inFront` is `true`, a front marker is defined, and the `'changeFrontMarker'` event fires; otherwise, the `'changeBackMarker'` event fires.
+     * @param {Range} range Define the range of the marker
+     * @param {String} clazz Set the CSS class for the marker
+     * @param {Function | String} type Identify the type of the marker
+     * @param {Boolean} inFront Set to `true` to establish a front marker
+     *
+     * @return {Number} The new marker id
+     **/
     this.addMarker = function(range, clazz, type, inFront) {
         var id = this.$markerId++;
 
@@ -637,7 +624,6 @@ var EditSession = function(text, mode) {
      * @param {Object} marker object with update method
      * @param {Boolean} inFront Set to `true` to establish a front marker
      *
-     *
      * @return {Object} The added marker
      **/
     this.addDynamicMarker = function(marker, inFront) {
@@ -659,30 +645,26 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Removes the marker with the specified ID. If this marker was in front, the `'changeFrontMarker'` event is emitted. If the marker was in the back, the `'changeBackMarker'` event is emitted.
-    * @param {Number} markerId A number representing a marker
-    *
-    *
-    *
-    **/
+     * Removes the marker with the specified ID. If this marker was in front, the `'changeFrontMarker'` event is emitted. If the marker was in the back, the `'changeBackMarker'` event is emitted.
+     * @param {Number} markerId A number representing a marker
+     *
+     **/
     this.removeMarker = function(markerId) {
         var marker = this.$frontMarkers[markerId] || this.$backMarkers[markerId];
         if (!marker)
             return;
 
         var markers = marker.inFront ? this.$frontMarkers : this.$backMarkers;
-        if (marker) {
-            delete (markers[markerId]);
-            this._signal(marker.inFront ? "changeFrontMarker" : "changeBackMarker");
-        }
+        delete (markers[markerId]);
+        this._signal(marker.inFront ? "changeFrontMarker" : "changeBackMarker");
     };
 
     /**
-    * Returns an object containing all of the markers, either front or back.
-    * @param {Boolean} inFront If `true`, indicates you only want front markers; `false` indicates only back markers
-    *
-    * @returns {Object}
-    **/
+     * Returns an object containing all of the markers, either front or back.
+     * @param {Boolean} inFront If `true`, indicates you only want front markers; `false` indicates only back markers
+     *
+     * @returns {Object}
+     **/
     this.getMarkers = function(inFront) {
         return inFront ? this.$frontMarkers : this.$backMarkers;
     };
@@ -719,36 +701,35 @@ var EditSession = function(text, mode) {
      *  }
      */
     /**
-    * Sets annotations for the `EditSession`. This functions emits the `'changeAnnotation'` event.
-    * @param {Array} annotations A list of annotations
-    *
-    **/
+     * Sets annotations for the `EditSession`. This functions emits the `'changeAnnotation'` event.
+     * @param {Array} annotations A list of annotations
+     *
+     **/
     this.setAnnotations = function(annotations) {
         this.$annotations = annotations;
         this._signal("changeAnnotation", {});
     };
 
     /**
-    * Returns the annotations for the `EditSession`.
-    * @returns {Array}
-    **/
+     * Returns the annotations for the `EditSession`.
+     * @returns {Array}
+     **/
     this.getAnnotations = function() {
         return this.$annotations || [];
     };
 
     /**
-    * Clears all the annotations for this session. This function also triggers the `'changeAnnotation'` event.
-    **/
+     * Clears all the annotations for this session. This function also triggers the `'changeAnnotation'` event.
+     **/
     this.clearAnnotations = function() {
         this.setAnnotations([]);
     };
 
     /**
-    * If `text` contains either the newline (`\n`) or carriage-return ('\r') characters, `$autoNewLine` stores that value.
-    * @param {String} text A block of text
-    *
-    *
-    **/
+     * If `text` contains either the newline (`\n`) or carriage-return ('\r') characters, `$autoNewLine` stores that value.
+     * @param {String} text A block of text
+     *
+     **/
     this.$detectNewLine = function(text) {
         var match = text.match(/^.*?(\r?\n)/m);
         if (match) {
@@ -759,12 +740,12 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Given a starting row and column, this method returns the `Range` of the first word boundary it finds.
-    * @param {Number} row The row to start at
-    * @param {Number} column The column to start at
-    *
-    * @returns {Range}
-    **/
+     * Given a starting row and column, this method returns the `Range` of the first word boundary it finds.
+     * @param {Number} row The row to start at
+     * @param {Number} column The column to start at
+     *
+     * @returns {Range}
+     **/
     this.getWordRange = function(row, column) {
         var line = this.getLine(row);
 
@@ -800,12 +781,12 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Gets the range of a word, including its right whitespace.
-    * @param {Number} row The row number to start from
-    * @param {Number} column The column number to start from
-    *
-    * @return {Range}
-    **/
+     * Gets the range of a word, including its right whitespace.
+     * @param {Number} row The row number to start from
+     * @param {Number} column The column number to start from
+     *
+     * @return {Range}
+     **/
     this.getAWordRange = function(row, column) {
         var wordRange = this.getWordRange(row, column);
         var line = this.getLine(wordRange.end.row);
@@ -817,55 +798,55 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * {:Document.setNewLineMode.desc}
-    * @param {String} newLineMode {:Document.setNewLineMode.param}
-    *
-    *
-    * @related Document.setNewLineMode
-    **/
+     * {:Document.setNewLineMode.desc}
+     * @param {String} newLineMode {:Document.setNewLineMode.param}
+     *
+     *
+     * @related Document.setNewLineMode
+     **/
     this.setNewLineMode = function(newLineMode) {
         this.doc.setNewLineMode(newLineMode);
     };
 
     /**
-    *
-    * Returns the current new line mode.
-    * @returns {String}
-    * @related Document.getNewLineMode
-    **/
+     *
+     * Returns the current new line mode.
+     * @returns {String}
+     * @related Document.getNewLineMode
+     **/
     this.getNewLineMode = function() {
         return this.doc.getNewLineMode();
     };
 
     /**
-    * Identifies if you want to use a worker for the `EditSession`.
-    * @param {Boolean} useWorker Set to `true` to use a worker
-    *
-    **/
+     * Identifies if you want to use a worker for the `EditSession`.
+     * @param {Boolean} useWorker Set to `true` to use a worker
+     *
+     **/
     this.setUseWorker = function(useWorker) { this.setOption("useWorker", useWorker); };
 
     /**
-    * Returns `true` if workers are being used.
-    **/
+     * Returns `true` if workers are being used.
+     **/
     this.getUseWorker = function() { return this.$useWorker; };
 
     /**
-    * Reloads all the tokens on the current session. This function calls [[BackgroundTokenizer.start `BackgroundTokenizer.start ()`]] to all the rows; it also emits the `'tokenizerUpdate'` event.
-    **/
+     * Reloads all the tokens on the current session. This function calls [[BackgroundTokenizer.start `BackgroundTokenizer.start ()`]] to all the rows; it also emits the `'tokenizerUpdate'` event.
+     **/
     this.onReloadTokenizer = function(e) {
         var rows = e.data;
         this.bgTokenizer.start(rows.first);
         this._signal("tokenizerUpdate", e);
     };
 
-    this.$modes = {};
+    this.$modes = config.$modes;
 
     /**
-    * Sets a new text mode for the `EditSession`. This method also emits the `'changeMode'` event. If a [[BackgroundTokenizer `BackgroundTokenizer`]] is set, the `'tokenizerUpdate'` event is also emitted.
-    * @param {TextMode} mode Set a new text mode
-    * @param {cb} optional callback
-    *
-    **/
+     * Sets a new text mode for the `EditSession`. This method also emits the `'changeMode'` event. If a [[BackgroundTokenizer `BackgroundTokenizer`]] is set, the `'tokenizerUpdate'` event is also emitted.
+     * @param {TextMode} mode Set a new text mode
+     * @param {cb} optional callback
+     *
+     **/
     this.$mode = null;
     this.$modeId = null;
     this.setMode = function(mode, cb) {
@@ -974,19 +955,19 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Returns the current text mode.
-    * @returns {TextMode} The current text mode
-    **/
+     * Returns the current text mode.
+     * @returns {TextMode} The current text mode
+     **/
     this.getMode = function() {
         return this.$mode;
     };
 
     this.$scrollTop = 0;
     /**
-    * This function sets the scroll top value. It also emits the `'changeScrollTop'` event.
-    * @param {Number} scrollTop The new scroll top value
-    *
-    **/
+     * This function sets the scroll top value. It also emits the `'changeScrollTop'` event.
+     * @param {Number} scrollTop The new scroll top value
+     *
+     **/
     this.setScrollTop = function(scrollTop) {
         // TODO: should we force integer lineheight instead? scrollTop = Math.round(scrollTop); 
         if (this.$scrollTop === scrollTop || isNaN(scrollTop))
@@ -997,17 +978,17 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * [Returns the value of the distance between the top of the editor and the topmost part of the visible content.]{: #EditSession.getScrollTop}
-    * @returns {Number}
-    **/
+     * [Returns the value of the distance between the top of the editor and the topmost part of the visible content.]{: #EditSession.getScrollTop}
+     * @returns {Number}
+     **/
     this.getScrollTop = function() {
         return this.$scrollTop;
     };
 
     this.$scrollLeft = 0;
     /**
-    * [Sets the value of the distance between the left of the editor and the leftmost part of the visible content.]{: #EditSession.setScrollLeft}
-    **/
+     * [Sets the value of the distance between the left of the editor and the leftmost part of the visible content.]{: #EditSession.setScrollLeft}
+     **/
     this.setScrollLeft = function(scrollLeft) {
         // scrollLeft = Math.round(scrollLeft);
         if (this.$scrollLeft === scrollLeft || isNaN(scrollLeft))
@@ -1018,17 +999,17 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * [Returns the value of the distance between the left of the editor and the leftmost part of the visible content.]{: #EditSession.getScrollLeft}
-    * @returns {Number}
-    **/
+     * [Returns the value of the distance between the left of the editor and the leftmost part of the visible content.]{: #EditSession.getScrollLeft}
+     * @returns {Number}
+     **/
     this.getScrollLeft = function() {
         return this.$scrollLeft;
     };
 
     /**
-    * Returns the width of the screen.
-    * @returns {Number}
-    **/
+     * Returns the width of the screen.
+     * @returns {Number}
+     **/
     this.getScreenWidth = function() {
         this.$computeWidth();
         if (this.lineWidgets) 
@@ -1084,10 +1065,8 @@ var EditSession = function(text, mode) {
      * Returns a verbatim copy of the given line as it is in the document
      * @param {Number} row The row to retrieve from
      *
-    *
      * @returns {String}
-    *
-    **/
+     **/
     this.getLine = function(row) {
         return this.doc.getLine(row);
     };
@@ -1147,14 +1126,14 @@ var EditSession = function(text, mode) {
     };
     
     /**
-    * Removes a range of full lines. This method also triggers the `'change'` event.
-    * @param {Number} firstRow The first row to be removed
-    * @param {Number} lastRow The last row to be removed
-    * @returns {[String]} Returns all the removed lines.
-    *
-    * @related Document.removeFullLines
-    *
-    **/
+     * Removes a range of full lines. This method also triggers the `'change'` event.
+     * @param {Number} firstRow The first row to be removed
+     * @param {Number} lastRow The last row to be removed
+     * @returns {[String]} Returns all the removed lines.
+     *
+     * @related Document.removeFullLines
+     *
+     **/
     this.removeFullLines = function(firstRow, lastRow){
         return this.doc.removeFullLines(firstRow, lastRow);
     };
@@ -1163,34 +1142,29 @@ var EditSession = function(text, mode) {
      * Reverts previous changes to your document.
      * @param {Array} deltas An array of previous changes
      * @param {Boolean} dontSelect [If `true`, doesn't select the range of where the change occured]{: #dontSelect}
-    *
      *
      * @returns {Range}
-    **/
+     **/
     this.undoChanges = function(deltas, dontSelect) {
         if (!deltas.length)
             return;
 
         this.$fromUndo = true;
-        var lastUndoRange = null;
         for (var i = deltas.length - 1; i != -1; i--) {
             var delta = deltas[i];
-            if (delta.group == "doc") {
-                this.doc.revertDeltas(delta.deltas);
-                lastUndoRange =
-                    this.$getUndoSelection(delta.deltas, true, lastUndoRange);
-            } else {
-                delta.deltas.forEach(function(foldDelta) {
-                    this.addFolds(foldDelta.folds);
-                }, this);
+            if (delta.action == "insert" || delta.action == "remove") {
+                this.doc.revertDelta(delta);
+            } else if (delta.folds) {
+                this.addFolds(delta.folds);
             }
         }
+        if (!dontSelect && this.$undoSelect) {
+            if (deltas.selectionBefore)
+                this.selection.fromJSON(deltas.selectionBefore);
+            else
+                this.selection.setRange(this.$getUndoSelection(deltas, true));
+        }
         this.$fromUndo = false;
-        lastUndoRange &&
-            this.$undoSelect &&
-            !dontSelect &&
-            this.selection.setSelectionRange(lastUndoRange);
-        return lastUndoRange;
     };
 
     /**
@@ -1198,58 +1172,60 @@ var EditSession = function(text, mode) {
      * @param {Array} deltas An array of previous changes
      * @param {Boolean} dontSelect {:dontSelect}
      *
-    *
      * @returns {Range}
-    **/
+     **/
     this.redoChanges = function(deltas, dontSelect) {
         if (!deltas.length)
             return;
 
         this.$fromUndo = true;
-        var lastUndoRange = null;
         for (var i = 0; i < deltas.length; i++) {
             var delta = deltas[i];
-            if (delta.group == "doc") {
-                this.doc.applyDeltas(delta.deltas);
-                lastUndoRange =
-                    this.$getUndoSelection(delta.deltas, false, lastUndoRange);
+            if (delta.action == "insert" || delta.action == "remove") {
+                this.doc.applyDelta(delta);
             }
         }
+
+        if (!dontSelect && this.$undoSelect) {
+            if (deltas.selectionAfter)
+                this.selection.fromJSON(deltas.selectionAfter);
+            else
+                this.selection.setRange(this.$getUndoSelection(deltas, false));
+        }
         this.$fromUndo = false;
-        lastUndoRange &&
-            this.$undoSelect &&
-            !dontSelect &&
-            this.selection.setSelectionRange(lastUndoRange);
-        return lastUndoRange;
     };
 
     /**
-     * Enables or disables highlighting of the range where an undo occured.
+     * Enables or disables highlighting of the range where an undo occurred.
      * @param {Boolean} enable If `true`, selects the range of the reinserted change
-    *
-    **/
+     *      
+     **/
     this.setUndoSelect = function(enable) {
         this.$undoSelect = enable;
     };
 
-    this.$getUndoSelection = function(deltas, isUndo, lastUndoRange) {
+    this.$getUndoSelection = function(deltas, isUndo) {
         function isInsert(delta) {
             return isUndo ? delta.action !== "insert" : delta.action === "insert";
         }
 
-        var delta = deltas[0];
         var range, point;
-        var lastDeltaIsInsert = false;
-        if (isInsert(delta)) {
-            range = Range.fromPoints(delta.start, delta.end);
-            lastDeltaIsInsert = true;
-        } else {
-            range = Range.fromPoints(delta.start, delta.start);
-            lastDeltaIsInsert = false;
-        }
+        var lastDeltaIsInsert;
 
-        for (var i = 1; i < deltas.length; i++) {
-            delta = deltas[i];
+        for (var i = 0; i < deltas.length; i++) {
+            var delta = deltas[i];
+            if (!delta.start) continue; // skip folds
+            if (!range) {
+                if (isInsert(delta)) {
+                    range = Range.fromPoints(delta.start, delta.end);
+                    lastDeltaIsInsert = true;
+                } else {
+                    range = Range.fromPoints(delta.start, delta.start);
+                    lastDeltaIsInsert = false;
+                }
+                continue;
+            }
+            
             if (isInsert(delta)) {
                 point = delta.start;
                 if (range.compare(point.row, point.column) == -1) {
@@ -1268,60 +1244,36 @@ var EditSession = function(text, mode) {
                 lastDeltaIsInsert = false;
             }
         }
-
-        // Check if this range and the last undo range has something in common.
-        // If true, merge the ranges.
-        if (lastUndoRange != null) {
-            if (Range.comparePoints(lastUndoRange.start, range.start) === 0) {
-                lastUndoRange.start.column += range.end.column - range.start.column;
-                lastUndoRange.end.column += range.end.column - range.start.column;
-            }
-
-            var cmp = lastUndoRange.compareRange(range);
-            if (cmp == 1) {
-                range.setStart(lastUndoRange.start);
-            } else if (cmp == -1) {
-                range.setEnd(lastUndoRange.end);
-            }
-        }
-
         return range;
     };
 
     /**
-    * Replaces a range in the document with the new `text`.
-    *
-    * @param {Range} range A specified Range to replace
-    * @param {String} text The new text to use as a replacement
-    * @returns {Object} An object containing the final row and column, like this:
-    * ```
-    * {row: endRow, column: 0}
-    * ```
-    * If the text and range are empty, this function returns an object containing the current `range.start` value.
-    * If the text is the exact same as what currently exists, this function returns an object containing the current `range.end` value.
-    *
-    *
-    *
-    * @related Document.replace
-    *
-    *
-    **/
+     * Replaces a range in the document with the new `text`.
+     *
+     * @param {Range} range A specified Range to replace
+     * @param {String} text The new text to use as a replacement
+     * @returns {Object} An object containing the final row and column, like this:
+     * ```
+     * {row: endRow, column: 0}
+     * ```
+     * If the text and range are empty, this function returns an object containing the current `range.start` value.
+     * If the text is the exact same as what currently exists, this function returns an object containing the current `range.end` value.
+     *
+     * @related Document.replace
+     **/
     this.replace = function(range, text) {
         return this.doc.replace(range, text);
     };
 
     /**
-    * Moves a range of text from the given range to the given position. `toPosition` is an object that looks like this:
+     * Moves a range of text from the given range to the given position. `toPosition` is an object that looks like this:
      *  ```json
-    *    { row: newRowLocation, column: newColumnLocation }
+     *    { row: newRowLocation, column: newColumnLocation }
      *  ```
      * @param {Range} fromRange The range of text you want moved within the document
      * @param {Object} toPosition The location (row and column) where you want to move the text to
      * @returns {Range} The new range where the text was moved to.
-    *
-    *
-    *
-    **/
+     **/
     this.moveText = function(fromRange, toPosition, copy) {
         var text = this.getTextRange(fromRange);
         var folds = this.getFoldsInRange(fromRange);
@@ -1365,15 +1317,15 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Indents all the rows, from `startRow` to `endRow` (inclusive), by prefixing each row with the token in `indentString`.
-    *
-    * If `indentString` contains the `'\t'` character, it's replaced by whatever is defined by [[EditSession.getTabString `getTabString()`]].
-    * @param {Number} startRow Starting row
-    * @param {Number} endRow Ending row
-    * @param {String} indentString The indent token
-    *
-    *
-    **/
+     * Indents all the rows, from `startRow` to `endRow` (inclusive), by prefixing each row with the token in `indentString`.
+     *
+     * If `indentString` contains the `'\t'` character, it's replaced by whatever is defined by [[EditSession.getTabString `getTabString()`]].
+     * @param {Number} startRow Starting row
+     * @param {Number} endRow Ending row
+     * @param {String} indentString The indent token
+     *
+     *
+     **/
     this.indentRows = function(startRow, endRow, indentString) {
         indentString = indentString.replace(/\t/g, this.getTabString());
         for (var row=startRow; row<=endRow; row++)
@@ -1381,11 +1333,10 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Outdents all the rows defined by the `start` and `end` properties of `range`.
-    * @param {Range} range A range of rows
-    *
-    *
-    **/
+     * Outdents all the rows defined by the `start` and `end` properties of `range`.
+     * @param {Range} range A range of rows
+     *
+     **/
     this.outdentRows = function (range) {
         var rowRange = range.collapseRows();
         var deleteRange = new Range(0, 0, 0, 0);
@@ -1443,34 +1394,34 @@ var EditSession = function(text, mode) {
         return diff;
     };
     /**
-    * Shifts all the lines in the document up one, starting from `firstRow` and ending at `lastRow`.
-    * @param {Number} firstRow The starting row to move up
-    * @param {Number} lastRow The final row to move up
-    * @returns {Number} If `firstRow` is less-than or equal to 0, this function returns 0. Otherwise, on success, it returns -1.
-    *
-    **/
+     * Shifts all the lines in the document up one, starting from `firstRow` and ending at `lastRow`.
+     * @param {Number} firstRow The starting row to move up
+     * @param {Number} lastRow The final row to move up
+     * @returns {Number} If `firstRow` is less-than or equal to 0, this function returns 0. Otherwise, on success, it returns -1.
+     *
+     **/
     this.moveLinesUp = function(firstRow, lastRow) {
         return this.$moveLines(firstRow, lastRow, -1);
     };
 
     /**
-    * Shifts all the lines in the document down one, starting from `firstRow` and ending at `lastRow`.
-    * @param {Number} firstRow The starting row to move down
-    * @param {Number} lastRow The final row to move down
-    * @returns {Number} If `firstRow` is less-than or equal to 0, this function returns 0. Otherwise, on success, it returns -1.
-    **/
+     * Shifts all the lines in the document down one, starting from `firstRow` and ending at `lastRow`.
+     * @param {Number} firstRow The starting row to move down
+     * @param {Number} lastRow The final row to move down
+     * @returns {Number} If `firstRow` is less-than or equal to 0, this function returns 0. Otherwise, on success, it returns -1.
+     **/
     this.moveLinesDown = function(firstRow, lastRow) {
         return this.$moveLines(firstRow, lastRow, 1);
     };
 
     /**
-    * Duplicates all the text between `firstRow` and `lastRow`.
-    * @param {Number} firstRow The starting row to duplicate
-    * @param {Number} lastRow The final row to duplicate
-    * @returns {Number} Returns the number of new rows added; in other words, `lastRow - firstRow + 1`.
-    *
-    *
-    **/
+     * Duplicates all the text between `firstRow` and `lastRow`.
+     * @param {Number} firstRow The starting row to duplicate
+     * @param {Number} lastRow The final row to duplicate
+     * @returns {Number} Returns the number of new rows added; in other words, `lastRow - firstRow + 1`.
+     *
+     *
+     **/
     this.duplicateLines = function(firstRow, lastRow) {
         return this.$moveLines(firstRow, lastRow, 0);
     };
@@ -1545,8 +1496,7 @@ var EditSession = function(text, mode) {
      * Sets whether or not line wrapping is enabled. If `useWrapMode` is different than the current value, the `'changeWrapMode'` event is emitted.
      * @param {Boolean} useWrapMode Enable (or disable) wrap mode
      *
-    *
-    **/
+     **/
     this.setUseWrapMode = function(useWrapMode) {
         if (useWrapMode != this.$useWrapMode) {
             this.$useWrapMode = useWrapMode;
@@ -1565,9 +1515,9 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Returns `true` if wrap mode is being used; `false` otherwise.
-    * @returns {Boolean}
-    **/
+     * Returns `true` if wrap mode is being used; `false` otherwise.
+     * @returns {Boolean}
+     **/
     this.getUseWrapMode = function() {
         return this.$useWrapMode;
     };
@@ -1581,12 +1531,13 @@ var EditSession = function(text, mode) {
      * @param {Number} min The minimum wrap value (the left side wrap)
      * @param {Number} max The maximum wrap value (the right side wrap)
      *
-    *
-    **/
+     **/
     this.setWrapLimitRange = function(min, max) {
         if (this.$wrapLimitRange.min !== min || this.$wrapLimitRange.max !== max) {
             this.$wrapLimitRange = { min: min, max: max };
             this.$modified = true;
+            this.$bidiHandler.markAsDirty();
+
             // This will force a recalculation of the wrap limit
             if (this.$useWrapMode)
                 this._signal("changeWrapMode");
@@ -1594,12 +1545,12 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * This should generally only be called by the renderer when a resize is detected.
-    * @param {Number} desiredLimit The new wrap limit
-    * @returns {Boolean}
-    *
-    * @private
-    **/
+     * This should generally only be called by the renderer when a resize is detected.
+     * @param {Number} desiredLimit The new wrap limit
+     * @returns {Boolean}
+     *
+     * @private
+     **/
     this.adjustWrapLimit = function(desiredLimit, $printMargin) {
         var limits = this.$wrapLimitRange;
         if (limits.max < 0)
@@ -1629,9 +1580,9 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Returns the value of wrap limit.
-    * @returns {Number} The wrap limit.
-    **/
+     * Returns the value of wrap limit.
+     * @returns {Number} The wrap limit.
+     **/
     this.getWrapLimit = function() {
         return this.$wrapLimit;
     };
@@ -1647,12 +1598,12 @@ var EditSession = function(text, mode) {
     };
     
     /**
-    * Returns an object that defines the minimum and maximum of the wrap limit; it looks something like this:
-    *
-    *     { min: wrapLimitRange_min, max: wrapLimitRange_max }
-    *
-    * @returns {Object}
-    **/
+     * Returns an object that defines the minimum and maximum of the wrap limit; it looks something like this:
+     *
+     *     { min: wrapLimitRange_min, max: wrapLimitRange_max }
+     *
+     * @returns {Object}
+     **/
     this.getWrapLimitRange = function() {
         // Avoid unexpected mutation by returning a copy
         return {
@@ -1705,7 +1656,7 @@ var EditSession = function(text, mode) {
             } else {
                 var args = Array(len);
                 args.unshift(firstRow, 0);
-                var arr = useWrapMode ? this.$wrapData : this.$rowLengthCache
+                var arr = useWrapMode ? this.$wrapData : this.$rowLengthCache;
                 arr.splice.apply(arr, args);
 
                 // If some new line is added inside of a foldLine, then split
@@ -1866,20 +1817,13 @@ var EditSession = function(text, mode) {
             return Math.min(indentation, maxIndent);
         }
         function addSplit(screenPos) {
-            var displayed = tokens.slice(lastSplit, screenPos);
-
             // The document size is the current size - the extra width for tabs
             // and multipleWidth characters.
-            var len = displayed.length;
-            displayed.join("").
-                // Get all the TAB_SPACEs.
-                replace(/12/g, function() {
-                    len -= 1;
-                }).
-                // Get all the CHAR_EXT/multipleWidth characters.
-                replace(/2/g, function() {
-                    len -= 1;
-                });
+            var len = screenPos - lastSplit;
+            for (var i = lastSplit; i < screenPos; i++) {
+                var ch = tokens[i];
+                if (ch === 12 || ch === 2) len -= 1;
+            }
 
             if (!splits.length) {
                 indent = getWrapIndent();
@@ -1909,7 +1853,7 @@ var EditSession = function(text, mode) {
             // === ELSE ===
             // Check if split is inside of a placeholder. Placeholder are
             // not splitable. Therefore, seek the beginning of the placeholder
-            // and try to place the split beofre the placeholder's start.
+            // and try to place the split before the placeholder's start.
             if (tokens[split] == PLACEHOLDER_START || tokens[split] == PLACEHOLDER_BODY) {
                 // Seek the start of the placeholder and do the split
                 // before the placeholder. By definition there always
@@ -1986,12 +1930,11 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Given a string, returns an array of the display characters, including tabs and spaces.
-    * @param {String} str The string to check
-    * @param {Number} offset The value to start at
-    *
-    *
-    **/
+     * Given a string, returns an array of the display characters, including tabs and spaces.
+     * @param {String} str The string to check
+     * @param {Number} offset The value to start at
+     *
+     **/
     this.$getDisplayTokens = function(str, offset) {
         var arr = [];
         var tabSize;
@@ -2025,14 +1968,14 @@ var EditSession = function(text, mode) {
 
     /**
      * Calculates the width of the string `str` on the screen while assuming that the string starts at the first column on the screen.
-    * @param {String} str The string to calculate the screen width of
-    * @param {Number} maxScreenColumn
-    * @param {Number} screenColumn
-    * @returns {[Number]} Returns an `int[]` array with two elements:<br/>
-    * The first position indicates the number of columns for `str` on screen.<br/>
-    * The second value contains the position of the document column that this function read until.
-    *
-    **/
+     * @param {String} str The string to calculate the screen width of
+     * @param {Number} maxScreenColumn
+     * @param {Number} screenColumn
+     * @returns {[Number]} Returns an `int[]` array with two elements:<br/>
+     * The first position indicates the number of columns for `str` on screen.<br/>
+     * The second value contains the position of the document column that this function read until.
+     *
+     **/
     this.$getStringScreenWidth = function(str, maxScreenColumn, screenColumn) {
         if (maxScreenColumn == 0)
             return [0, 0];
@@ -2063,16 +2006,16 @@ var EditSession = function(text, mode) {
 
     this.lineWidgets = null;
     /**
-    * Returns number of screenrows in a wrapped line.
-    * @param {Number} row The row number to check
-    *
-    * @returns {Number}
-    **/
+     * Returns number of screenrows in a wrapped line.
+     * @param {Number} row The row number to check
+     *
+     * @returns {Number}
+     **/
     this.getRowLength = function(row) {
         if (this.lineWidgets)
             var h = this.lineWidgets[row] && this.lineWidgets[row].rowCount || 0;
         else 
-            h = 0
+            h = 0;
         if (!this.$useWrapMode || !this.$wrapData[row]) {
             return 1 + h;
         } else {
@@ -2095,7 +2038,7 @@ var EditSession = function(text, mode) {
         } else {
             return 0;
         }
-    }
+    };
 
     /**
      * Returns the position (on screen) for the last character in the provided screen row.
@@ -2103,39 +2046,38 @@ var EditSession = function(text, mode) {
      * @returns {Number}
      *
      * @related EditSession.documentToScreenColumn
-    **/
+     **/
     this.getScreenLastRowColumn = function(screenRow) {
         var pos = this.screenToDocumentPosition(screenRow, Number.MAX_VALUE);
         return this.documentToScreenColumn(pos.row, pos.column);
     };
 
     /**
-    * For the given document row and column, this returns the column position of the last screen row.
-    * @param {Number} docRow
-    *
-    * @param {Number} docColumn
-    **/
+     * For the given document row and column, this returns the column position of the last screen row.
+     * @param {Number} docRow
+     *
+     * @param {Number} docColumn
+     **/
     this.getDocumentLastRowColumn = function(docRow, docColumn) {
         var screenRow = this.documentToScreenRow(docRow, docColumn);
         return this.getScreenLastRowColumn(screenRow);
     };
 
     /**
-    * For the given document row and column, this returns the document position of the last row.
-    * @param {Number} docRow
-    * @param {Number} docColumn
-    *
-    *
-    **/
+     * For the given document row and column, this returns the document position of the last row.
+     * @param {Number} docRow
+     * @param {Number} docColumn
+     *
+     **/
     this.getDocumentLastRowColumnPosition = function(docRow, docColumn) {
         var screenRow = this.documentToScreenRow(docRow, docColumn);
         return this.screenToDocumentPosition(screenRow, Number.MAX_VALUE / 10);
     };
 
     /**
-    * For the given row, this returns the split data.
-    * @returns {String}
-    **/
+     * For the given row, this returns the split data.
+     * @returns {String}
+     **/
     this.getRowSplitData = function(row) {
         if (!this.$useWrapMode) {
             return undefined;
@@ -2145,12 +2087,11 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * The distance to the next tab stop at the specified screen column.
-    * @param {Number} screenColumn The screen column to check
-    *
-    *
-    * @returns {Number}
-    **/
+     * The distance to the next tab stop at the specified screen column.
+     * @param {Number} screenColumn The screen column to check
+     *
+     * @returns {Number}
+     **/
     this.getScreenTabSize = function(screenColumn) {
         return this.$tabSize - screenColumn % this.$tabSize;
     };
@@ -2166,16 +2107,16 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Converts characters coordinates on the screen to characters coordinates within the document. [This takes into account code folding, word wrap, tab size, and any other visual modifications.]{: #conversionConsiderations}
-    * @param {Number} screenRow The screen row to check
-    * @param {Number} screenColumn The screen column to check
-    * @returns {Object} The object returned has two properties: `row` and `column`.
-    *
-    *
-    * @related EditSession.documentToScreenPosition
-    *
-    **/
-    this.screenToDocumentPosition = function(screenRow, screenColumn) {
+     * Converts characters coordinates on the screen to characters coordinates within the document. [This takes into account code folding, word wrap, tab size, and any other visual modifications.]{: #conversionConsiderations}
+     * @param {Number} screenRow The screen row to check
+     * @param {Number} screenColumn The screen column to check
+     * @param {int} screen character x-offset [optional]
+     *
+     * @returns {Object} The object returned has two properties: `row` and `column`.
+     *
+     * @related EditSession.documentToScreenPosition
+     **/
+    this.screenToDocumentPosition = function(screenRow, screenColumn, offsetX) {
         if (screenRow < 0)
             return {row: 0, column: 0};
 
@@ -2234,11 +2175,10 @@ var EditSession = function(text, mode) {
             line = this.getLine(docRow);
             foldLine = null;
         }
-        var wrapIndent = 0;
+        var wrapIndent = 0, splitIndex = Math.floor(screenRow - row);
         if (this.$useWrapMode) {
             var splits = this.$wrapData[docRow];
             if (splits) {
-                var splitIndex = Math.floor(screenRow - row);
                 column = splits[splitIndex];
                 if(splitIndex > 0 && splits.length) {
                     wrapIndent = splits.indent;
@@ -2247,6 +2187,9 @@ var EditSession = function(text, mode) {
                 }
             }
         }
+
+        if (offsetX !== undefined && this.$bidiHandler.isBidiRow(row + splitIndex, docRow, splitIndex))
+            screenColumn = this.$bidiHandler.offsetToCol(offsetX);
 
         docColumn += this.$getStringScreenWidth(line, screenColumn - wrapIndent)[1];
 
@@ -2262,15 +2205,13 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * Converts document coordinates to screen coordinates. {:conversionConsiderations}
-    * @param {Number} docRow The document row to check
-    * @param {Number} docColumn The document column to check
-    * @returns {Object} The object returned by this method has two properties: `row` and `column`.
-    *
-    *
-    * @related EditSession.screenToDocumentPosition
-    *
-    **/
+     * Converts document coordinates to screen coordinates. {:conversionConsiderations}
+     * @param {Number} docRow The document row to check
+     * @param {Number} docColumn The document column to check
+     * @returns {Object} The object returned by this method has two properties: `row` and `column`.
+     *
+     * @related EditSession.screenToDocumentPosition
+     **/
     this.documentToScreenPosition = function(docRow, docColumn) {
         // Normalize the passed in arguments.
         if (typeof docColumn === "undefined")
@@ -2364,31 +2305,30 @@ var EditSession = function(text, mode) {
     };
 
     /**
-    * For the given document row and column, returns the screen column.
-    * @param {Number} row
-    * @param {Number} docColumn
-    * @returns {Number}
-    *
-    **/
+     * For the given document row and column, returns the screen column.
+     * @param {Number} row
+     * @param {Number} docColumn
+     * @returns {Number}
+     *
+     **/
     this.documentToScreenColumn = function(row, docColumn) {
         return this.documentToScreenPosition(row, docColumn).column;
     };
 
     /**
-    * For the given document row and column, returns the screen row.
-    * @param {Number} docRow
-    * @param {Number} docColumn
-    *
-    *
-    **/
+     * For the given document row and column, returns the screen row.
+     * @param {Number} docRow
+     * @param {Number} docColumn
+     *
+     **/
     this.documentToScreenRow = function(docRow, docColumn) {
         return this.documentToScreenPosition(docRow, docColumn).row;
     };
 
     /**
-    * Returns the length of the screen.
-    * @returns {Number}
-    **/
+     * Returns the length of the screen.
+     * @returns {Number}
+     **/
     this.getScreenLength = function() {
         var screenRows = 0;
         var fold = null;
@@ -2431,7 +2371,30 @@ var EditSession = function(text, mode) {
      *
      */
     this.$setFontMetrics = function(fm) {
-        // todo
+        if (!this.$enableVarChar) return;
+        this.$getStringScreenWidth = function(str, maxScreenColumn, screenColumn) {
+            if (maxScreenColumn === 0)
+                return [0, 0];
+            if (!maxScreenColumn)
+                maxScreenColumn = Infinity;
+            screenColumn = screenColumn || 0;
+            
+            var c, column;
+            for (column = 0; column < str.length; column++) {
+                c = str.charAt(column);
+                // tab
+                if (c === "\t") {
+                    screenColumn += this.getScreenTabSize(screenColumn);
+                } else {
+                    screenColumn += fm.getCharacterWidth(c);
+                }
+                if (screenColumn > maxScreenColumn) {
+                    break;
+                }
+            }
+            
+            return [screenColumn, column];
+        };
     };
     
     this.destroy = function() {
@@ -2441,6 +2404,8 @@ var EditSession = function(text, mode) {
         }
         this.$stopWorker();
     };
+
+    this.isFullWidth = isFullWidth;
 
     // For every keystroke this gets called once per char in the whole doc!!
     // Wouldn't hurt to make it a bit faster for c >= 0x1100
@@ -2479,7 +2444,7 @@ var EditSession = function(text, mode) {
                c >= 0xFE68 && c <= 0xFE6B ||
                c >= 0xFF01 && c <= 0xFF60 ||
                c >= 0xFFE0 && c <= 0xFFE6;
-    };
+    }
 
 }).call(EditSession.prototype);
 
@@ -2531,15 +2496,22 @@ config.defineOptions(EditSession.prototype, "session", {
             if (val != this.$wrapAsCode) {
                 this.$wrapAsCode = val;
                 if (this.$useWrapMode) {
-                    this.$modified = true;
-                    this.$resetRowCache(0);
-                    this.$updateWrapData(0, this.getLength() - 1);
+                    this.$useWrapMode = false;
+                    this.setUseWrapMode(true);
                 }
             }
         },
         initialValue: "auto"
     },
-    indentedSoftWrap: { initialValue: true },
+    indentedSoftWrap: {
+        set: function() {
+            if (this.$useWrapMode) {
+                this.$useWrapMode = false;
+                this.setUseWrapMode(true);
+            }
+        },
+        initialValue: true 
+    },
     firstLineNumber: {
         set: function() {this._signal("changeBreakpoint");},
         initialValue: 1
@@ -2557,6 +2529,7 @@ config.defineOptions(EditSession.prototype, "session", {
     useSoftTabs: {initialValue: true},
     tabSize: {
         set: function(tabSize) {
+            tabSize = parseInt(tabSize);
             if (isNaN(tabSize) || this.$tabSize === tabSize) return;
 
             this.$modified = true;
@@ -2567,18 +2540,24 @@ config.defineOptions(EditSession.prototype, "session", {
         initialValue: 4,
         handlesSet: true
     },
+    navigateWithinSoftTabs: {initialValue: false},
+    foldStyle: {
+        set: function(val) {this.setFoldStyle(val);},
+        handlesSet: true
+    },
     overwrite: {
         set: function(val) {this._signal("changeOverwrite");},
         initialValue: false
     },
     newLineMode: {
-        set: function(val) {this.doc.setNewLineMode(val)},
-        get: function() {return this.doc.getNewLineMode()},
+        set: function(val) {this.doc.setNewLineMode(val);},
+        get: function() {return this.doc.getNewLineMode();},
         handlesSet: true
     },
     mode: {
-        set: function(val) { this.setMode(val) },
-        get: function() { return this.$modeId }
+        set: function(val) { this.setMode(val); },
+        get: function() { return this.$modeId; },
+        handlesSet: true
     }
 });
 

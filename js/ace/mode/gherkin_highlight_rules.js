@@ -35,18 +35,40 @@ var TextHighlightRules = require("./text_highlight_rules").TextHighlightRules;
 var stringEscape =  "\\\\(x[0-9A-Fa-f]{2}|[0-7]{3}|[\\\\abfnrtv'\"]|U[0-9A-Fa-f]{8}|u[0-9A-Fa-f]{4})";
 
 var GherkinHighlightRules = function() {
-
+    var languages = [{
+        name: "en",
+        labels: "Feature|Background|Scenario(?: Outline)?|Examples",
+        keywords: "Given|When|Then|And|But"
+    }
+    /* TODO find a way to enable this when first line in the file is # language: pl
+    , {
+        name: "pl",
+        labels: "Właściwość|Funkcja|Aspekt|Potrzeba biznesowa|Założenia|Scenariusz|Szablon scenariusza|Przykłady",
+        keywords: "Mając|Zakładając(?:, że)?|Jeżeli|Jeśli|Gdy|Kiedy|Wtedy|Oraz|I|Ale"
+    }
+    */];
+    
+    var labels = languages.map(function(l) {
+        return l.labels;
+    }).join("|");
+    var keywords = languages.map(function(l) {
+        return l.keywords;
+    }).join("|");
+    
     // need to include constant ints
     this.$rules = {
         start : [{
-            token: 'constant.numeric',
+            token: "constant.numeric",
             regex: "(?:(?:[1-9]\\d*)|(?:0))"
         }, {
             token : "comment",
             regex : "#.*$"
         }, {
             token : "keyword",
-            regex : "Feature:|Background:|Scenario:|Scenario\ Outline:|Examples:|Given|When|Then|And|But|\\*",
+            regex : "(?:" + labels + "):|(?:" + keywords + ")\\b"
+        }, {
+            token : "keyword",
+            regex : "\\*"
         }, {
             token : "string",           // multi line """ string start
             regex : '"{3}',
@@ -60,7 +82,7 @@ var GherkinHighlightRules = function() {
             regex : "^\\s*(?=@[\\w])",
             next : [{
                 token : "text",
-                regex : "\\s+",
+                regex : "\\s+"
             }, {
                 token : "variable.parameter",
                 regex : "@[\\w]+"
@@ -71,7 +93,7 @@ var GherkinHighlightRules = function() {
             }]
         }, {
             token : "comment",
-            regex : "<.+>"
+            regex : "<[^>]+>"
         }, {
             token : "comment",
             regex : "\\|(?=.)",
@@ -120,7 +142,7 @@ var GherkinHighlightRules = function() {
         }]
     };
     this.normalizeRules();
-}
+};
 
 oop.inherits(GherkinHighlightRules, TextHighlightRules);
 

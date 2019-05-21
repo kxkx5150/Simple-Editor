@@ -38,57 +38,71 @@ var searchboxCss = require("../requirejs/text!./searchbox.css");
 var HashHandler = require("../keyboard/hash_handler").HashHandler;
 var keyUtil = require("../lib/keys");
 var Range = require("../range").Range;
+var MAX_COUNT = 999;
 
 dom.importCssString(searchboxCss, "ace_searchbox");
 
-var html = '<div class="ace_search right">\
-    <button type="button" action="hide" class="ace_searchbtn_close"></button>\
-    <div class="ace_search_form">\
-        <input class="ace_search_field" placeholder="Search for" spellcheck="false"></input>\
-        <button type="button" action="findNext" class="ace_searchbtn next"></button>\
-        <button type="button" action="findPrev" class="ace_searchbtn prev"></button>\
-        <button type="button" action="findAll" class="ace_searchbtn" title="Alt-Enter">All</button>\
-    </div>\
-    <div class="ace_replace_form">\
-        <input class="ace_search_field" placeholder="Replace with" spellcheck="false"></input>\
-        <button type="button" action="replaceAndFindNext" class="ace_replacebtn">Replace</button>\
-        <button type="button" action="replaceAll" class="ace_replacebtn">All</button>\
-    </div>\
-    <div class="ace_search_options">\
-        <span action="toggleRegexpMode" class="ace_button" title="RegExp Search">.*</span>\
-        <span action="toggleCaseSensitive" class="ace_button" title="CaseSensitive Search">Aa</span>\
-        <span action="toggleWholeWords" class="ace_button" title="Whole Word Search">\\b</span>\
-    </div>\
-    <div class="ace_search_count">\
-        <span class="search_count_info"></span>\
-    </div>\
-</div>'.replace(/>\s+/g, ">");
-
 var SearchBox = function(editor, range, showReplaceForm) {
     var div = dom.createElement("div");
-    div.innerHTML = html;
+    dom.buildDom(["div", {class:"ace_search right"},
+        ["span", {action: "hide", class: "ace_searchbtn_close"}],
+        ["div", {class: "ace_search_form"},
+            ["input", {class: "ace_search_field", placeholder: "Search for", spellcheck: "false"}],
+            ["span", {action: "findPrev", class: "ace_searchbtn prev"}, "\u200b"],
+            ["span", {action: "findNext", class: "ace_searchbtn next"}, "\u200b"],
+            ["span", {action: "findAll", class: "ace_searchbtn", title: "Alt-Enter"}, "All"]
+        ],
+        ["div", {class: "ace_replace_form"},
+            ["input", {class: "ace_search_field", placeholder: "Replace with", spellcheck: "false"}],
+            ["span", {action: "replaceAndFindNext", class: "ace_searchbtn"}, "Replace"],
+            ["span", {action: "replaceAll", class: "ace_searchbtn"}, "All"]
+        ],
+        ["div", {class: "ace_search_options"},
+            ["span", {action: "toggleReplace", class: "ace_button", title: "Toggle Replace mode",
+                style: "float:left;margin-top:-2px;padding:0 5px;"}, "+"],
+            ["span", {class: "ace_search_counter"}],
+            ["span", {action: "toggleRegexpMode", class: "ace_button", title: "RegExp Search"}, ".*"],
+            ["span", {action: "toggleCaseSensitive", class: "ace_button", title: "CaseSensitive Search"}, "Aa"],
+            ["span", {action: "toggleWholeWords", class: "ace_button", title: "Whole Word Search"}, "\\b"],
+            ["span", {action: "searchInSelection", class: "ace_button", title: "Search In Selection"}, "S"]
+        ],
+        ["div", {class: "ace_search_count"},
+            ["span", {class: "search_count_info"}]
+        ]
+    ], div);
     this.element = div.firstChild;
+    
+    this.setSession = this.setSession.bind(this);
+
     this.$init();
     this.setEditor(editor);
+    dom.importCssString(searchboxCss, "ace_searchbox", editor.container);
 };
 
 (function() {
     this.setEditor = function(editor) {
         editor.searchBox = this;
-        editor.currentword = "";
-        editor.container.appendChild(this.element);
+        editor.currentword = "";        
+        editor.renderer.scroller.appendChild(this.element);
         this.editor = editor;
+    };
+    
+    this.setSession = function(e) {
+        this.searchRange = null;
+        this.$syncOptions(true);
     };
 
     this.$initElements = function(sb) {
         this.searchBox = sb.querySelector(".ace_search_form");
         this.replaceBox = sb.querySelector(".ace_replace_form");
-        this.searchOptions = sb.querySelector(".ace_search_options");
+        this.searchOption = sb.querySelector("[action=searchInSelection]");
+        this.replaceOption = sb.querySelector("[action=toggleReplace]");
         this.regExpOption = sb.querySelector("[action=toggleRegexpMode]");
         this.caseSensitiveOption = sb.querySelector("[action=toggleCaseSensitive]");
         this.wholeWordOption = sb.querySelector("[action=toggleWholeWords]");
         this.searchInput = this.searchBox.querySelector(".ace_search_field");
         this.replaceInput = this.replaceBox.querySelector(".ace_search_field");
+        this.searchCounter = sb.querySelector(".ace_search_counter");
     };
     
     this.$init = function() {
@@ -138,12 +152,13 @@ var SearchBox = function(editor, range, showReplaceForm) {
             _this.searchInput.value && _this.highlight();
         });
         event.addListener(this.searchInput, "keydown", function(e) {
-			var sh = simpleEditor.searchhistory;
-			var sidx = simpleEditor.searchhistoryidx;
-			_this.inputHistory(e,this,sh,sidx)
+            var sh = simpleEditor.searchhistory;
+            var sidx = simpleEditor.searchhistoryidx;
+            _this.inputHistory(e,this,sh,sidx)
         });
     };
-    //keybinging outsite of the searchbox
+
+    //keybinding outside of the searchbox
     this.$closeSearchBarKb = new HashHandler([{
         bindKey: "Esc",
         name: "closeSearchBar",
@@ -152,13 +167,22 @@ var SearchBox = function(editor, range, showReplaceForm) {
         }
     }]);
 
-    //keybinging outsite of the searchbox
+    //keybinding outside of the searchbox
     this.$searchBarKb = new HashHandler();
     this.$searchBarKb.bindKeys({
-        "Ctrl-f|Command-f|Ctrl-H|Command-Option-F": function(sb) {
+        "Ctrl-f|Command-f": function(sb) {
             var isReplace = sb.isReplace = !sb.isReplace;
             sb.replaceBox.style.display = isReplace ? "" : "none";
-            sb[isReplace ? "replaceInput" : "searchInput"].focus();
+            sb.replaceOption.checked = false;
+            sb.$syncOptions();
+            sb.searchInput.focus();
+        },
+        "Ctrl-H|Command-Option-F": function(sb) {
+            if (sb.editor.getReadOnly())
+                return;
+            sb.replaceOption.checked = true;
+            sb.$syncOptions();
+            sb.replaceInput.focus();
         },
         "Ctrl-G|Command-G": function(sb) {
             sb.findNext();
@@ -167,7 +191,7 @@ var SearchBox = function(editor, range, showReplaceForm) {
             sb.findPrev();
         },
         "esc": function(sb) {
-			sb.hide();
+            setTimeout(function() { sb.hide();});
         },
         "Return": function(sb) {
             if (sb.activeInput == sb.replaceInput)
@@ -213,68 +237,98 @@ var SearchBox = function(editor, range, showReplaceForm) {
             sb.wholeWordOption.checked = !sb.wholeWordOption.checked;
             sb.$syncOptions();
         }
+    }, {
+        name: "toggleReplace",
+        exec: function(sb) {
+            sb.replaceOption.checked = !sb.replaceOption.checked;
+            sb.$syncOptions();
+        }
+    }, {
+        name: "searchInSelection",
+        exec: function(sb) {
+            sb.searchOption.checked = !sb.searchRange;
+            sb.setSearchRange(sb.searchOption.checked && sb.editor.getSelectionRange());
+            sb.$syncOptions();
+        }
     }]);
     this.inputHistory = function(e,input,sh,sidx,rflg){
-		if(sh.length > 1){
-			if(e.keyCode === 38){
-				if(sidx < 0){
-					input.value = sh[sh.length-1]
-					sidx = sh.length-1;
-					if(rflg){
-						simpleEditor.replacehistoryidx = sidx;
-					}else{
-						simpleEditor.searchhistoryidx = sidx;
-						this.find();
-					}
-				}else if(sh[sidx-1]){
-					input.value = sh[sidx-1]
-					sidx--;
-					if(rflg){
-						simpleEditor.replacehistoryidx = sidx;
-					}else{
-						simpleEditor.searchhistoryidx = sidx;
-						this.find();
-					}
-				}
-				e.stopPropagation();
-				e.preventDefault();
-			}else if(e.keyCode === 40){
-				if(sidx < 0){
-					input.value = sh[0]
-					sidx = 0;
-					if(rflg){
-						simpleEditor.replacehistoryidx = sidx;
-					}else{
-						simpleEditor.searchhistoryidx = sidx;
-						this.find();
-					}
-				}else if(sh[sidx+1]){
-					input.value = sh[sidx+1]
-					sidx++;
-					if(rflg){
-						simpleEditor.replacehistoryidx = sidx;
-					}else{
-						simpleEditor.searchhistoryidx = sidx;
-						this.find();
-					}
-				}
-				e.stopPropagation();
-				e.preventDefault();
-			}
-		}        	
+        if(sh.length > 1){
+            if(e.keyCode === 38){
+                if(sidx < 0){
+                    input.value = sh[sh.length-1]
+                    sidx = sh.length-1;
+                    if(rflg){
+                        simpleEditor.replacehistoryidx = sidx;
+                    }else{
+                        simpleEditor.searchhistoryidx = sidx;
+                        this.find();
+                    }
+                }else if(sh[sidx-1]){
+                    input.value = sh[sidx-1]
+                    sidx--;
+                    if(rflg){
+                        simpleEditor.replacehistoryidx = sidx;
+                    }else{
+                        simpleEditor.searchhistoryidx = sidx;
+                        this.find();
+                    }
+                }
+                e.stopPropagation();
+                e.preventDefault();
+            }else if(e.keyCode === 40){
+                if(sidx < 0){
+                    input.value = sh[0]
+                    sidx = 0;
+                    if(rflg){
+                        simpleEditor.replacehistoryidx = sidx;
+                    }else{
+                        simpleEditor.searchhistoryidx = sidx;
+                        this.find();
+                    }
+                }else if(sh[sidx+1]){
+                    input.value = sh[sidx+1]
+                    sidx++;
+                    if(rflg){
+                        simpleEditor.replacehistoryidx = sidx;
+                    }else{
+                        simpleEditor.searchhistoryidx = sidx;
+                        this.find();
+                    }
+                }
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }           
     };
-    this.$syncOptions = function() {
+    this.setSearchRange = function(range) {
+        this.searchRange = range;
+        if (range) {
+            this.searchRangeMarker = this.editor.session.addMarker(range, "ace_active-line");
+        } else if (this.searchRangeMarker) {
+            this.editor.session.removeMarker(this.searchRangeMarker);
+            this.searchRangeMarker = null;
+        }
+    };
+
+    this.$syncOptions = function(preventScroll) {
+        dom.setCssClass(this.replaceOption, "checked", this.searchRange);
+        dom.setCssClass(this.searchOption, "checked", this.searchOption.checked);
+        this.replaceOption.textContent = this.replaceOption.checked ? "-" : "+";
         dom.setCssClass(this.regExpOption, "checked", this.regExpOption.checked);
         dom.setCssClass(this.wholeWordOption, "checked", this.wholeWordOption.checked);
         dom.setCssClass(this.caseSensitiveOption, "checked", this.caseSensitiveOption.checked);
-        this.find(false, false);
+        var readOnly = this.editor.getReadOnly();
+        this.replaceOption.style.display = readOnly ? "none" : "";
+        this.replaceBox.style.display = this.replaceOption.checked && !readOnly ? "" : "none";
+        this.find(false, false, preventScroll);
     };
+
     this.highlight = function(re) {
         this.editor.session.highlight(re || this.editor.$search.$options.re);
-        this.editor.renderer.updateBackMarkers()
+        this.editor.renderer.updateBackMarkers();
     };
-    this.find = function(skipCurrent, backwards) {
-    	var that = this;
+    this.find = function(skipCurrent, backwards, preventScroll) {
+        var that = this;
         var srchwd = this.searchInput.value;
         var cases = this.caseSensitiveOption.checked;
         var range = this.editor.find(srchwd, {
@@ -283,7 +337,9 @@ var SearchBox = function(editor, range, showReplaceForm) {
             wrap: true,
             regExp: this.regExpOption.checked,
             caseSensitive: cases,
-            wholeWord: this.wholeWordOption.checked
+            wholeWord: this.wholeWordOption.checked,
+            preventScroll: preventScroll,
+            range: this.searchRange
         });
         var noMatch = !range && this.searchInput.value;
         dom.setCssClass(this.searchBox, "ace_nomatch", noMatch);
@@ -292,8 +348,41 @@ var SearchBox = function(editor, range, showReplaceForm) {
         this.highlightLine(this.editor.currentword,this.editor);
         this.highlight();
         setTimeout(function(){
-	        that.pushSearchHistory(srchwd);
+            that.pushSearchHistory(srchwd);
         },0)
+        this.updateCounter();
+    };
+    this.updateCounter = function() {
+        var editor = this.editor;
+        var regex = editor.$search.$options.re;
+        var all = 0;
+        var before = 0;
+        if (regex) {
+            var value = this.searchRange
+                ? editor.session.getTextRange(this.searchRange)
+                : editor.getValue();
+            
+            var offset = editor.session.doc.positionToIndex(editor.selection.anchor);
+            if (this.searchRange)
+                offset -= editor.session.doc.positionToIndex(this.searchRange.start);
+                
+            var last = regex.lastIndex = 0;
+            var m;
+            while ((m = regex.exec(value))) {
+                all++;
+                last = m.index;
+                if (last <= offset)
+                    before++;
+                if (all > MAX_COUNT)
+                    break;
+                if (!m[0]) {
+                    regex.lastIndex = last += 1;
+                    if (last >= value.length)
+                        break;
+                }
+            }
+        }
+        this.searchCounter.textContent = before + " of " + (all > MAX_COUNT ? MAX_COUNT + "+" : all);
     };
     this.highlightLine = function(crntkeywd,editor){
         if(!simpleEditor.optobj.highlight_search_active || !crntkeywd)return;
@@ -305,32 +394,32 @@ var SearchBox = function(editor, range, showReplaceForm) {
             wholeWord: this.wholeWordOption.checked,
             countflg:session
         });
-    	if(!itemcnt)return;
+        if(!itemcnt)return;
         for (var i = 0; i < itemcnt.length; i++) {
-        	var item = itemcnt[i];
-    		var start = item.start;
-    		var end = item.end;
-    		var r = new Range(start.row, start.column, end.row, end.column);
-    		session.addMarker(r , "ace_search_highlight_word");
+            var item = itemcnt[i];
+            var start = item.start;
+            var end = item.end;
+            var r = new Range(start.row, start.column, end.row, end.column);
+            session.addMarker(r , "ace_search_highlight_word");
         };
         if(itemcnt&&itemcnt.length > 0){
-	        this.setInfo(itemcnt.length,editor)
+            this.setInfo(itemcnt.length,editor)
         }else{
-	        this.removehighlightLine();
-	        this.setInfo(0,editor)
+            this.removehighlightLine();
+            this.setInfo(0,editor)
         } 
     };
     this.removehighlightLine = function(){
         var editor = this.editor;
         var session = this.editor.session;
         var hitems = session.getMarkers()
-		var keys = Object.keys(hitems);
-		for (var i = 0, len = keys.length; i < len; i++) {
-			var key = keys[i];
-        	var item = hitems[key];
-        	if(item.clazz === "ace_search_highlight_word"){
-				session.removeMarker(item.id);
-        	}
+        var keys = Object.keys(hitems);
+        for (var i = 0, len = keys.length; i < len; i++) {
+            var key = keys[i];
+            var item = hitems[key];
+            if(item.clazz === "ace_search_highlight_word"){
+                session.removeMarker(item.id);
+            }
         };
     };
     this.removeAllMarker = function(){
@@ -349,12 +438,12 @@ var SearchBox = function(editor, range, showReplaceForm) {
         this.find(true, true);
     };
     this.findAll = function(){
-    	this.editor.currentword = "";
-        var range = this.editor.findAll(this.searchInput.value, {    
+        this.editor.currentword = "";
+        var range = this.editor.findAll(this.searchInput.value, {   
             regExp: this.regExpOption.checked,
             caseSensitive: this.caseSensitiveOption.checked,
             wholeWord: this.wholeWordOption.checked
-        });   
+        });
         var noMatch = !range && this.searchInput.value;
         dom.setCssClass(this.searchBox, "ace_nomatch", noMatch);
         this.editor._emit("findSearchBox", { match: !noMatch });
@@ -362,59 +451,61 @@ var SearchBox = function(editor, range, showReplaceForm) {
         this.hide();
         this.editor.focus();
         this.removehighlightLine();
+
     };
     this.replace = function() {
-        if (!this.editor.getReadOnly()){
+        if (!this.editor.getReadOnly())
             this.editor.replace(this.replaceInput.value);
-        }
     };    
     this.replaceAndFindNext = function() {
         if (!this.editor.getReadOnly()) {
             this.editor.replace(this.replaceInput.value);
-            this.findNext()
+            this.findNext();
         }
     };
     this.replaceAll = function() {
-        if (!this.editor.getReadOnly()){
+        if (!this.editor.getReadOnly())
             this.editor.replaceAll(this.replaceInput.value);
-        }
     };
     this.pushSearchHistory = function(srchwd){
         var sidx = simpleEditor.searchhistory.indexOf(srchwd);
         if(sidx === -1){
-        	simpleEditor.searchhistory.push(srchwd);
-        	if(simpleEditor.searchhistory.length > 100)simpleEditor.searchhistory.shift();
-			simpleEditor.searchhistoryidx = simpleEditor.searchhistory.length-1;
+            simpleEditor.searchhistory.push(srchwd);
+            if(simpleEditor.searchhistory.length > 100)simpleEditor.searchhistory.shift();
+            simpleEditor.searchhistoryidx = simpleEditor.searchhistory.length-1;
         }else{
-			simpleEditor.searchhistoryidx = sidx;
+            simpleEditor.searchhistoryidx = sidx;
         }
     };
     this.pushReplaceHistory = function(srchwd){
         var sidx = simpleEditor.replacehistory.indexOf(srchwd);
         if(sidx === -1){
-        	simpleEditor.replacehistory.push(srchwd);
-        	if(simpleEditor.replacehistory.length > 100)simpleEditor.replacehistory.shift();
-			simpleEditor.replacehistoryidx = simpleEditor.replacehistoryidx.length-1;
+            simpleEditor.replacehistory.push(srchwd);
+            if(simpleEditor.replacehistory.length > 100)simpleEditor.replacehistory.shift();
+            simpleEditor.replacehistoryidx = simpleEditor.replacehistoryidx.length-1;
         }else{
-			simpleEditor.replacehistoryidx = sidx;
+            simpleEditor.replacehistoryidx = sidx;
         }
     };
     this.hide = function(flg) {
-    	this.removeEvent();
+        this.removeEvent();
         this.removehighlightLine();
-    	this.editor.currentword = "";
+        this.editor.currentword = "";
+        this.active = false;
+        this.setSearchRange(null);
+        this.editor.off("changeSession", this.setSession);
+        
         this.element.style.display = "none";
         this.editor.keyBinding.removeKeyboardHandler(this.$closeSearchBarKb);
         if(!flg)this.editor.focus();
     };
     this.show = function(value, isReplace) {
-    	this.editor.currentword = "";
+        this.editor.currentword = "";
         var that = this,vflg = false;
+        this.active = true;
+        this.editor.on("changeSession", this.setSession);
         this.element.style.display = "";
-        this.replaceBox.style.display = isReplace ? "" : "none";
-
-        this.isReplace = isReplace;
-
+        this.replaceOption.checked = isReplace;
         if (value){
             this.searchInput.value = value;
             vflg = true;
@@ -426,11 +517,13 @@ var SearchBox = function(editor, range, showReplaceForm) {
         this.editor.keyBinding.addKeyboardHandler(this.$closeSearchBarKb);
         this.setInfo("",this.editor)
         if(vflg)this.find(false,true);
+        this.$syncOptions(true);
     };
+
     this.isFocused = function() {
         var el = document.activeElement;
         return el == this.searchInput || el == this.replaceInput;
-    }
+    };
 }).call(SearchBox.prototype);
 
 exports.SearchBox = SearchBox;
@@ -448,7 +541,7 @@ exports.Search = function(editor, isReplace) {
  * --------------------------------------------------------------------------------------- */
 /*
 - move search form to the left if it masks current word
-- includ all options that search has. ex: regex
-- searchbox.searchbox is not that pretty. we should have just searchbox
-- disable prev button if it makes sence
+- include all options that search has. ex: regex
+- searchbox.searchbox is not that pretty. We should have just searchbox
+- disable prev button if it makes sense
 */

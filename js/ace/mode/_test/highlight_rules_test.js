@@ -1,5 +1,7 @@
 var fs = require("fs");
 var path = require("path");
+var regexpTokenizer = require("../../../../tool/regexp_tokenizer");
+
 if (!fs.existsSync)
     fs.existsSync = path.existsSync;
 
@@ -21,7 +23,8 @@ function modeList() {
 }
 
 function checkModes() {
-    modeList().forEach(function(modeName) {
+    modeList().forEach(function(modeName, i) {
+        console.log(padNumber(i+1, 3) + ") check: \u001b[33m" + modeName + "\u001b[0m");
         try {
             var Mode = require("../" + modeName).Mode;
         } catch(e) {
@@ -29,35 +32,59 @@ function checkModes() {
             return;
         }
         var m = new Mode();
-        if (!m.lineCommentStart && !m.blockComment)
+        if (!("lineCommentStart" in m) && !("blockComment" in m))
             console.warn("missing comment in " + modeName);
         if (!m.$id)
             console.warn("missing id in " + modeName);
+        if (!m.$behaviour)
+            console.warn("missing behavior in " + modeName);
         var tokenizer = (new Mode).getTokenizer();
-        if (m.lineCommentStart) {
-            if (Array.isArray(m.lineCommentStart)) {
-                m.lineCommentStart.forEach(function(x) {
-                    testLineComment(tokenizer, x, modeName)
+        
+        testComments(m.lineCommentStart, testLineComment, tokenizer, modeName);
+        testComments(m.blockComment, testBlockComment, tokenizer, modeName);
+    });
+    
+    function testComments(desc, fn, tokenizer, modeName) {
+        if (desc) {
+            if (Array.isArray(desc)) {
+                desc.forEach(function(x) {
+                    fn(tokenizer, x, modeName);
                 });
             } else {
-                testLineComment(tokenizer, m.lineCommentStart, modeName)
+                fn(tokenizer, desc, modeName);
             }
         }
-        // if (m.blockComment) {
-        //     var tokens = tok.getLineTokens(m.lineCommentStart, "start");
-        //     if (!/comment/.test(tokens[0]))
-        //         console.warn("broken lineCommentStart in " + modeName);
-        // }
-    });
+    }
+    
+    function testBlockComment(tokenizer, blockComment, modeName) {
+        if (blockComment.lineStartOnly)
+            return; // TODO test 
+        var str = blockComment.start + " " + blockComment.end;
+        str = blockComment.start + str;
+        if (blockComment.nestable)
+            str += blockComment.end;     
+        var data = tokenizer.getLineTokens(str, "start");
+        var isBroken = data.tokens.some(function(t) { return !/comment/.test(t.type); });
+        if (isBroken) {
+            console.warn("broken blockComment in " + modeName, data);
+            process.exit(1);
+        }
+        if (!/start/.test(data.state)) {
+            console.warn("broken state after blockComment in " + modeName, data);
+            process.exit(1);
+        }
+    }
     
     function testLineComment(tokenizer, commentStart, modeName) {
         var tokens = tokenizer.getLineTokens(commentStart + " ", "start").tokens;
-        if (!/comment/.test(tokens[0].type))
-            console.warn("broken lineCommentStart in " + modeName);
+        if (!/comment/.test(tokens[0].type)) {
+            console.warn("broken lineCommentStart in " + modeName, tokens);
+            process.exit(1);
+        }
     }
 }
 
-function generateTestData() {
+function generateTestData(names, force) {
     var docRoot = root + "/demo/kitchen-sink/docs";
     var docs = fs.readdirSync(docRoot);
     var specialDocs = fs.readdirSync(cwd);
@@ -78,14 +105,32 @@ function generateTestData() {
         else
             modeName = {"txt": "text", cpp: "c_cpp"}[p[1]];
 
-        var filePath = "text_" + modeName + ".txt";
-        if (specialDocs.indexOf(filePath) == -1) {
-            filePath = docRoot + "/" + docName;
-        } else {
-            filePath = cwd + filePath;
+        if (names && names.length && names.indexOf(modeName) == -1)
+            return;
+        
+        var outputPath = cwd + "tokens_" + modeName + ".json";
+        try {
+            var oldOutput = require(outputPath);
+        } catch(e) {}
+        if (oldOutput && !force) {
+            var oldText = oldOutput.map(function(x) {
+                if (x.length > 1 && typeof x[x.length - 1] == "string")
+                    return x[x.length - 1];
+                return x.slice(1).map(function(tok) {
+                    return tok[1];
+                }).join("");
+            }).join("\n");
         }
-
-        var text = fs.readFileSync(filePath, "utf8");
+        
+        var filePath = "text_" + modeName + ".txt";
+        if (specialDocs.indexOf(filePath) !== -1) {
+            filePath = cwd + filePath;
+        } else {
+            filePath = docRoot + "/" + docName;
+            // oldText = "";
+        }
+        var text = oldText ||fs.readFileSync(filePath, "utf8");
+        
         try {
             var Mode = require("../" + modeName).Mode;
         } catch(e) {
@@ -112,14 +157,18 @@ function generateTestData() {
         });
         
         var jsonStr = "[[\n   " + data.join("\n],[\n   ") + "\n]]";
-        fs.writeFileSync(cwd + "tokens_" + modeName + ".json", jsonStr, "utf8");
+        
+        if (oldOutput && JSON.stringify(JSON.parse(jsonStr)) == JSON.stringify(oldOutput))
+            return;
+        
+        fs.writeFileSync(outputPath, jsonStr, "utf8");
     });
 }
 
 function test(startAt) {
     var modes = fs.readdirSync(cwd).map(function(x) {
         return (x.match(/tokens_(.*).json/) || {})[1];
-    }).filter(function(x){return !!x});
+    }).filter(function(x){return !!x;});
 
     for (var i = Math.max(0, startAt||0); i < modes.length; i++)
         testMode(modes[i], i);
@@ -133,6 +182,8 @@ function testMode(modeName, i) {
     var data = JSON.parse(text);
     var Mode = require("../" + modeName).Mode;
     var tokenizer = new Mode().getTokenizer();
+
+    checkBacktracking(tokenizer);
 
     var state = "start";
     data.forEach(function(lineData) {
@@ -196,14 +247,58 @@ function padNumber(num, digits) {
     return ("      " + num).slice(-digits);
 }
 
+function maybeCatastrophicBacktracking(regex) {
+    var tokens = regexpTokenizer.tokenize(regex.source);
+    var quantifiedGroups = [];
+    var groups = [];
+    var groupIndex = 0;
+    for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i];
+        if (token.type == "group.start") {
+            var endIndex = tokens.indexOf(token.end, i);
+            var next = tokens[endIndex + 1];
+            if (next && next.type == "quantifier" && next.value != "?") {
+                quantifiedGroups.push(token.end);
+            }
+            groups.push(token.end);
+        }
+        if (token.type == "group.end") {
+            if (quantifiedGroups[quantifiedGroups.length - 1] == token)
+                quantifiedGroups.pop();
+            if (groups[groups.length - 1] == token)
+                groups.pop();
+            if (groups.length == 0)
+                groupIndex++;
+        }
+        if (token.type == "quantifier" && quantifiedGroups.length >= 1 && token.value != "?") {
+            return groupIndex;
+        }
+    }
+    return null;
+}
+function checkBacktracking(tokenizer) {
+    var regExps = tokenizer.regExps;
+    Object.keys(regExps || {}).forEach(function(state) {
+        var i = maybeCatastrophicBacktracking(regExps[state]);
+        if (i != null) {
+            i = tokenizer.matchMappings[state][i];
+            var rule = tokenizer.states[state][i];
+            console.log("\tPossible error in", state, rule && rule.token, i);
+        }
+    });
+}
+
+
+
 // cli
 var arg = process.argv[2];
-if (!arg)
+if (!arg) {
     test();
-else if (/--?g(en)?/.test(arg))
+    checkModes();
+} else if (/--?g(en)?/.test(arg))
     generateTestData(process.argv.splice(3));
 else if (/--?c(heck)?/.test(arg))
-    checkModes(process.argv.splice(3));
+    checkModes();
 else if (/\d+/.test(arg))
     test(parseInt(process.argv[2],10) || 0);
 else

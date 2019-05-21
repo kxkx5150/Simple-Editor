@@ -49,7 +49,8 @@ var options = {
     themePath: null,
     basePath: "",
     suffix: ".js",
-    $moduleUrls: {}
+    $moduleUrls: {},
+    loadWorkerFromBlob: true
 };
 
 exports.get = function(key) {
@@ -69,6 +70,8 @@ exports.set = function(key, value) {
 exports.all = function() {
     return lang.copyObject(options);
 };
+
+exports.$modes = {};
 
 // module loading
 exports.moduleUrl = function(name, component) {
@@ -139,15 +142,32 @@ exports.loadModule = function(moduleName, onLoad) {
 
     if (!exports.get("packaged"))
         return afterLoad();
+    
     net.loadScript(exports.moduleUrl(moduleName, moduleType), afterLoad);
+    reportErrorIfPathIsNotConfigured();
+};
+
+var reportErrorIfPathIsNotConfigured = function() {
+    if (
+        !options.basePath && !options.workerPath 
+        && !options.modePath && !options.themePath
+        && !Object.keys(options.$moduleUrls).length
+    ) {
+        console.error(
+            "Unable to infer path to ace from script src,",
+            "use ace.config.set('basePath', 'path') to enable dynamic loading of modes and themes",
+            "or with webpack use ace/webpack-resolver"
+        );
+        reportErrorIfPathIsNotConfigured = function() {};
+    }
 };
 
 // initialization
 function init(packaged) {
+    if (!global || !global.document)
+        return;
+    
     options.packaged = packaged || require.packaged || module.packaged || (global.define && define.packaged);
-
-    if (!global.document)
-        return "";
 
     var scriptOptions = {};
     var scriptUrl = "";
@@ -191,7 +211,7 @@ function init(packaged) {
     for (var key in scriptOptions)
         if (typeof scriptOptions[key] !== "undefined")
             exports.set(key, scriptOptions[key]);
-};
+}
 
 exports.init = init;
 

@@ -43,6 +43,8 @@ var SAFE_INSERT_BEFORE_TOKENS =
 
 var context;
 var contextCache = {};
+var defaultQuotes = {'"' : '"', "'" : "'"};
+
 var initContext = function(editor) {
     var id = -1;
     if (editor.multiSelect) {
@@ -76,7 +78,7 @@ var getWrapped = function(selection, selected, opening, closing) {
     };
 };
 
-var CstyleBehaviour = function() {
+var CstyleBehaviour = function(options) {
     this.add("braces", "insertion", function(state, action, editor, session, text) {
         var cursor = editor.getCursorPosition();
         var line = session.doc.getLine(cursor.row);
@@ -87,7 +89,7 @@ var CstyleBehaviour = function() {
             if (selected !== "" && selected !== "{" && editor.getWrapBehavioursEnabled()) {
                 return getWrapped(selection, selected, '{', '}');
             } else if (CstyleBehaviour.isSaneInsertion(editor, session)) {
-                if (/[\]\}\)]/.test(line[cursor.column]) || editor.inMultiSelectMode) {
+                if (/[\]\}\)]/.test(line[cursor.column]) || editor.inMultiSelectMode || options && options.braces) {
                     CstyleBehaviour.recordAutoInsert(editor, session, "}");
                     return {
                         text: '{}',
@@ -250,12 +252,15 @@ var CstyleBehaviour = function() {
     });
 
     this.add("string_dquotes", "insertion", function(state, action, editor, session, text) {
-        if (text == '"' || text == "'") {
+        var quotes = session.$mode.$quotes || defaultQuotes;
+        if (text.length == 1 && quotes[text]) {
+            if (this.lineCommentStart && this.lineCommentStart.indexOf(text) != -1) 
+                return;
             initContext(editor);
             var quote = text;
             var selection = editor.getSelectionRange();
             var selected = session.doc.getTextRange(selection);
-            if (selected !== "" && selected !== "'" && selected != '"' && editor.getWrapBehavioursEnabled()) {
+            if (selected !== "" && (selected.length != 1 || !quotes[selected]) && editor.getWrapBehavioursEnabled()) {
                 return getWrapped(selection, selected, quote, quote);
             } else if (!selected) {
                 var cursor = editor.getCursorPosition();
@@ -275,6 +280,8 @@ var CstyleBehaviour = function() {
                 var pair;
                 if (rightChar == quote) {
                     pair = stringBefore !== stringAfter;
+                    if (pair && /string\.end/.test(rightToken.type))
+                        pair = false;
                 } else {
                     if (stringBefore && !stringAfter)
                         return null; // wrap string with different quote
@@ -300,8 +307,10 @@ var CstyleBehaviour = function() {
     });
 
     this.add("string_dquotes", "deletion", function(state, action, editor, session, range) {
+        var quotes = session.$mode.$quotes || defaultQuotes;
+
         var selected = session.doc.getTextRange(range);
-        if (!range.isMultiLine() && (selected == '"' || selected == "'")) {
+        if (!range.isMultiLine() && quotes.hasOwnProperty(selected)) {
             initContext(editor);
             var line = session.doc.getLine(range.start.row);
             var rightChar = line.substring(range.start.column + 1, range.start.column + 2);
