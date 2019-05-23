@@ -2,7 +2,7 @@
    "app": {
       "background": {
          "persistent": false,
-         "scripts": [ "js/background.js", "js/web-server-chrome/js/encoding.js", "js/web-server-chrome/js/underscore.js", "js/web-server-chrome/js/common.js", "js/web-server-chrome/js/mime.js", "js/web-server-chrome/js/buffer.js", "js/web-server-chrome/js/request.js", "js/web-server-chrome/js/stream.js", "js/web-server-chrome/js/connection.js", "js/web-server-chrome/js/webapp.js", "js/web-server-chrome/js/handlers.js", "js/web-server-chrome/js/httplib.js", "js/web-server-chrome/js/background.js" ]
+         "scripts": [ "js/bg.js", "js/web-server-chrome/js/encoding.js", "js/web-server-chrome/js/underscore.js", "js/web-server-chrome/js/common.js", "js/web-server-chrome/js/mime.js", "js/web-server-chrome/js/buffer.js", "js/web-server-chrome/js/request.js", "js/web-server-chrome/js/stream.js", "js/web-server-chrome/js/connection.js", "js/web-server-chrome/js/webapp.js", "js/web-server-chrome/js/handlers.js", "js/web-server-chrome/js/httplib.js", "js/web-server-chrome/js/background.js" ]
       }
    },
    "description": "Simple Editor",
