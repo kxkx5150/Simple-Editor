@@ -2250,10 +2250,10 @@ define(function (require, exports, module) {
 					type: "openFile",
 					acceptsMultiple: false
 				}, function (fileEntries) {
-					if (fileEntries && fileEntries.length > 0) {
+					if (fileEntries && fileEntries.isFile) {
 						that.diffpos = null;
 						that.diffcurrentpos = 0;
-						fileEntries[0].file(function (file) {
+						fileEntries.file(function (file) {
 							var reader = new FileReader();
 							reader.onloadend = function (e) {
 								if (!right) {
@@ -2397,8 +2397,8 @@ define(function (require, exports, module) {
 					type: "openFile",
 					acceptsMultiple: false
 				}, function (fileEntries) {
-					if (fileEntries && fileEntries.length > 0) {
-						fileEntries[0].file(function (file) {
+					if (fileEntries && fileEntries.isFile) {
+						fileEntries.file(function (file) {
 							var reader = new FileReader();
 							reader.onloadend = function (e) {
 								that.insertTxt(this.result)
@@ -2452,11 +2452,11 @@ define(function (require, exports, module) {
 						extensions: ["zip", "crx"]
 					}]
 				}, function (fileEntries) {
-					if (fileEntries && fileEntries.length > 0) {
-						fileEntries[0].file(function (item) {
+					if (fileEntries && fileEntries.isFile) {
+						fileEntries.file(function (item) {
 							var reader = new FileReader();
 							reader.onload = function (e) {
-								that.readZipItems(e.target.result, fileEntries[0].name)
+								that.readZipItems(e.target.result, fileEntries.name)
 							};
 							reader.readAsArrayBuffer(item);
 						});
@@ -5025,8 +5025,8 @@ define(function (require, exports, module) {
 							type: "openFile",
 							acceptsMultiple: false
 						}, function (fileEntries) {
-							if (fileEntries && fileEntries.length > 0) {
-								fileEntries[0].copyTo(fs.root)
+							if (fileEntries && fileEntries.isFile) {
+								fileEntries.copyTo(fs.root)
 							}
 						});
 					});

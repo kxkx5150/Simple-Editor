@@ -354,7 +354,6 @@ input[type=text]:focus {
 }
 .custom-frame-class span {
     font-family: 'Awesome';
-    height: 30px;
     width: 46px;
     font-size: 16px;
     margin: -1px 0 0 0;
@@ -365,7 +364,6 @@ input[type=text]:focus {
     transition-property: background;
     transition-duration: 0.3s;
     color: #fff;
-    line-height: 30px;
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -837,6 +835,7 @@ input[type=text]:focus {
     float: right;
     white-space: nowrap;
     z-index: 2147483647;
+    height: 39px;
 }
 .drop_menu li a {
     display: block;
