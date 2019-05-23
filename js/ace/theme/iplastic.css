@@ -28,11 +28,6 @@
 .ace-iplastic .ace_marker-layer .ace_step {
   background: #444444
 }
-.ace-iplastic .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-iplastic .ace_marker-layer .ace_bracket {
   margin: -1px 0 0 -1px;

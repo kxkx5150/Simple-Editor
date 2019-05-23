@@ -24,11 +24,6 @@
 .ace-tm .ace_invisible {
   color: rgb(191, 191, 191);
 }
-.ace-tm .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-tm .ace_storage,
 .ace-tm .ace_keyword {
@@ -127,7 +122,6 @@
 }
 .ace-tm.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px white;
-  border-radius: 2px;
 }
 .ace-tm .ace_marker-layer .ace_step {
   background: rgb(252, 255, 0);

@@ -23,17 +23,11 @@
 
 .ace-tomorrow-night-bright.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px #000000;
-  border-radius: 2px
 }
 
 .ace-tomorrow-night-bright .ace_marker-layer .ace_step {
   background: rgb(102, 82, 0)
 }
-.ace-tomorrow-night-bright .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-tomorrow-night-bright .ace_marker-layer .ace_bracket {
   margin: -1px 0 0 -1px;

@@ -23,7 +23,6 @@
 
 .ace-dawn.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px #F9F9F9;
-  border-radius: 2px
 }
 
 .ace-dawn .ace_marker-layer .ace_step {
@@ -34,11 +33,6 @@
   margin: -1px 0 0 -1px;
   border: 1px solid rgba(75, 75, 126, 0.50)
 }
-.ace-dawn .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-dawn .ace_marker-layer .ace_active-line {
   background: rgba(36, 99, 180, 0.12)

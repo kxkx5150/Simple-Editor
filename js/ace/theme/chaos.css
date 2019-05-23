@@ -27,11 +27,6 @@
   background-color: #161616;
   color: #E6E1DC;
 }
-.ace-chaos .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-chaos .ace_cursor {
   border-left: 2px solid #FFFFFF;

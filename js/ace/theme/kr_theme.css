@@ -23,13 +23,7 @@
 
 .ace-kr-theme.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px #0B0A09;
-  border-radius: 2px
 }
-.ace-kr-theme .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-kr-theme .ace_marker-layer .ace_step {
   background: rgb(102, 82, 0)

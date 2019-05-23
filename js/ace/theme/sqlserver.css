@@ -1,7 +1,3 @@
-.ace_line {
-    font-family: 'Consolas','Inconsolata';
-}
-
 .ace-sqlserver .ace_gutter {
     background: #ebebeb;
     color: #333;
@@ -33,11 +29,6 @@
 .ace-sqlserver .ace_storage {
     color: #11B7BE;
 }
-.ace-sqlserver .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-sqlserver .ace_keyword.ace_operator,
 .ace-sqlserver .ace_lparen,

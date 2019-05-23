@@ -1374,9 +1374,11 @@ define(function (require, exports, module) {
 					} else if (this.optobj.keybinding == "vim") {
 						// editor.setOption("useIncrementalSearch",true);
 						editor.setKeyboardHandler("ace/keyboard/" + this.optobj.keybinding);
-					} else {
+                    } else if (this.optobj.keybinding == "emacs") {
 						editor.setOption("useIncrementalSearch", true);
 						editor.setKeyboardHandler("ace/keyboard/" + this.optobj.keybinding);
+                    } else if (this.optobj.keybinding == "sublime") {
+                        editor.setKeyboardHandler("ace/keyboard/" + this.optobj.keybinding);
 					}
 					editor.$blockScrolling = Infinity;
 					var fntval = this.optobj.fontsize;
@@ -3626,13 +3628,19 @@ define(function (require, exports, module) {
 						if (optobj.folding == "false") {
 							document.getElementById("folding").selectedIndex = 0;
 						}
+
 						if (optobj.keybinding == "ace") {
 							document.getElementById("keybinding").selectedIndex = 0;
 						} else if (optobj.keybinding == "vim") {
 							document.getElementById("keybinding").selectedIndex = 1;
+                        } else if (optobj.keybinding == "emacs") {
+                            document.getElementById("keybinding").selectedIndex = 2;
+                        } else if (optobj.keybinding == "sublime") {
+                            document.getElementById("keybinding").selectedIndex = 3;
 						} else {
-							document.getElementById("keybinding").selectedIndex = 2;
+							document.getElementById("keybinding").selectedIndex = 0;
 						}
+
 						switch (optobj.soft_wrap) {
 							case "off":
 								break;
@@ -6253,7 +6261,6 @@ function addEvent(simpleEditor) {
 			var inpttxt = document.getElementById('goto-input').value;
 			var selelem = document.getElementsByClassName("select-goto-item")[0];
 			var selpelem = document.getElementsByClassName("select-command-palette-item")[0];
-
 			if (simpleEditor.currentpanelmode === "gotoline") {
 				if (/^\:[ 0-9]+/.test(inpttxt)) {
 					var lines = inpttxt.split(":");

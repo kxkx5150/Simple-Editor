@@ -30,11 +30,6 @@
 .ace-crimson-editor .ace_identifier {
   color: black;
 }
-.ace-crimson-editor .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-crimson-editor .ace_keyword {
   color: blue;

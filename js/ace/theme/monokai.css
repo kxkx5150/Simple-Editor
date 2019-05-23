@@ -1,10 +1,11 @@
 .ace-monokai .ace_gutter {
+  background: #2F3129;
   color: #8F908A
 }
 
 .ace-monokai .ace_print-margin {
   width: 1px;
-  background: #383830
+  background: #555651
 }
 
 .ace-monokai {
@@ -17,12 +18,11 @@
 }
 
 .ace-monokai .ace_marker-layer .ace_selection {
-  background: #585857
+  background: #49483E
 }
 
 .ace-monokai.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px #272822;
-  border-radius: 2px
 }
 
 .ace-monokai .ace_marker-layer .ace_step {
@@ -31,7 +31,7 @@
 
 .ace-monokai .ace_marker-layer .ace_bracket {
   margin: -1px 0 0 -1px;
-  border: 1px solid #5a5555
+  border: 1px solid #49483E
 }
 
 .ace-monokai .ace_marker-layer .ace_active-line {
@@ -43,8 +43,7 @@
 }
 
 .ace-monokai .ace_marker-layer .ace_selected-word {
-  border: 1px solid #bbbbbb;
-  border-radius: 1px;
+  border: 1px solid #49483E
 }
 
 .ace-monokai .ace_invisible {
@@ -79,15 +78,6 @@
   color: #F8F8F0;
   background-color: #AE81FF
 }
-
-
-.ace-monokai .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
-
-
 
 .ace-monokai .ace_support.ace_constant,
 .ace-monokai .ace_support.ace_function {

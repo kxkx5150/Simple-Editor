@@ -27,11 +27,6 @@
 .ace-eclipse .ace_variable {
   color: rgb(127, 0, 85);
 }
-.ace-eclipse .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-eclipse .ace_constant.ace_buildin {
   color: rgb(88, 72, 246);

@@ -23,7 +23,6 @@
 
 .ace-tomorrow.ace_multiselect .ace_selection.ace_start {
   box-shadow: 0 0 3px 0px #FFFFFF;
-  border-radius: 2px
 }
 
 .ace-tomorrow .ace_marker-layer .ace_step {
@@ -34,11 +33,6 @@
   margin: -1px 0 0 -1px;
   border: 1px solid #D1D1D1
 }
-.ace-tomorrow .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-tomorrow .ace_marker-layer .ace_active-line {
   background: #EFEFEF

@@ -33,11 +33,6 @@
 .ace-chrome .ace_constant.ace_library {
   color: rgb(6, 150, 14);
 }
-.ace-chrome .ace_search_highlight_word {
-    box-shadow: 0 0 2px 2px cyan inset !important;position: absolute !important;
-}
-
-
 
 .ace-chrome .ace_invalid {
   background-color: rgb(153, 0, 0);
