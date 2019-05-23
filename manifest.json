@@ -37,7 +37,7 @@
          "send": [ "" ]
       }
    },
-   "version": "7.1",
+   "version": "7.2",
    "webview": {
       "partitions": [ {
          "accessible_resources": [ "*.*" ],
